@@ -6,6 +6,8 @@ This project follows Semantic Versioning.
 ## [Unreleased]
 - No changes yet.
 
+---
+
 ## [1.1.0] – Planned
 
 ### Added
@@ -20,6 +22,13 @@ This project follows Semantic Versioning.
 ### Fixed
 - Edge cases involving combatants entering or leaving combat mid-round.
 - Minor inconsistencies in state cleanup during complex combat flows.
+
+---
+
+## [1.0.1] – 2026-02-04
+
+### Fixed
+- Corrected module manifest and download URLs to point to the correct repository.
 
 ---
 
