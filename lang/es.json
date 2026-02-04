@@ -1,0 +1,43 @@
+{
+  "wfrp4e_battle_status": {
+    "UI": {
+      "SystemAlias": "Sistema",
+      "Unknown": "Desconocido"
+    },
+    "Settings": {
+      "EnableAutoEngaged": {
+        "Name": "Activar gestión automática de Enfrentado",
+        "Hint": "Activa o desactiva toda la gestión automática del estado de batalla Enfrentado."
+      },
+      "RequireActiveCombat": {
+        "Name": "Aplicar Enfrentado solo durante un combate activo",
+        "Hint": "Cuando está activado, el estado Enfrentado se aplica solo después de que el combate haya comenzado (asalto 1+). Esta opción se ignora si la gestión automática de Enfrentado está desactivada."
+      },
+      "CombatantRequirement": {
+        "Name": "Elegibilidad para el enfrentamiento",
+        "Hint": "Define si ambos actores, solo uno o ninguno deben ser combatientes activos para que se aplique el estado Enfrentado. Esta opción se aplica solo cuando la gestión automática de Enfrentado está activada.",
+        "Choices": {
+          "Both": "Ambos actores deben ser combatientes",
+          "Either": "Al menos uno de los actores debe ser combatiente",
+          "None": "No es necesario ser combatiente"
+        }
+      },
+      "EnableChatMessages": {
+        "Name": "Mensajes de chat para estados de batalla",
+        "Hint": "Muestra mensajes en el chat cuando los estados de batalla se aplican o se eliminan (solo DJ y asistentes del DJ)."
+      },
+      "EnableDebugLog": {
+        "Name": "Activar registro de depuración",
+        "Hint": "Escribe información de depuración en la consola del navegador."
+      }
+    },
+    "Chat": {
+      "EngagedAppliedPair": "<b>{attacker}</b> y <b>{defender}</b> están ahora enfrentados (asalto {round}).",
+      "EngagedRemovedStartCombat": "<b>{token}</b> ya no está enfrentado (inicio del combate).",
+      "EngagedRemovedNoLongerEngaged": "<b>{token}</b> ya no está enfrentado (sin combate cuerpo a cuerpo en el asalto {round}).",
+      "EngagedRemovedUnconscious": "<b>{token}</b> ya no está enfrentado (inconsciente).",
+      "EngagedRemovedUnconsciousOpponent": "<b>{token}</b> ya no está enfrentado (oponente inconsciente).",
+      "EngagedRemovedEndCombat": "<b>{token}</b> ya no está enfrentado (combate finalizado)."
+    }
+  }
+}

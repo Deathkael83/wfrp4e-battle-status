@@ -1,0 +1,43 @@
+{
+  "wfrp4e_battle_status": {
+    "UI": {
+      "SystemAlias": "System",
+      "Unknown": "Unbekannt"
+    },
+    "Settings": {
+      "EnableAutoEngaged": {
+        "Name": "Automatische Verwaltung von „Gebunden“ aktivieren",
+        "Hint": "Aktiviert oder deaktiviert die gesamte automatische Verwaltung des Kampfstatus „Gebunden“."
+      },
+      "RequireActiveCombat": {
+        "Name": "„Gebunden“ nur während eines aktiven Kampfes anwenden",
+        "Hint": "Wenn diese Option aktiviert ist, wird der Status „Gebunden“ nur angewendet, nachdem der Kampf begonnen hat (Runde 1+). Diese Einstellung wird ignoriert, wenn die automatische Verwaltung von „Gebunden“ deaktiviert ist."
+      },
+      "CombatantRequirement": {
+        "Name": "Voraussetzungen für den Kampfstatus",
+        "Hint": "Legt fest, ob beide Akteure, nur einer oder keiner aktive Kampfteilnehmer sein müssen, damit der Status „Gebunden“ angewendet wird. Diese Einstellung gilt nur, wenn die automatische Verwaltung von „Gebunden“ aktiviert ist.",
+        "Choices": {
+          "Both": "Beide Akteure müssen Kampfteilnehmer sein",
+          "Either": "Mindestens ein Akteur muss Kampfteilnehmer sein",
+          "None": "Der Kampfteilnehmer-Status ist nicht erforderlich"
+        }
+      },
+      "EnableChatMessages": {
+        "Name": "Chatmeldungen für Kampfstatus",
+        "Hint": "Zeigt Chatmeldungen an, wenn Kampfstatus angewendet oder entfernt werden (nur SL und SL-Assistenten)."
+      },
+      "EnableDebugLog": {
+        "Name": "Debug-Protokoll aktivieren",
+        "Hint": "Schreibt Debug-Informationen in die Browser-Konsole."
+      }
+    },
+    "Chat": {
+      "EngagedAppliedPair": "<b>{attacker}</b> und <b>{defender}</b> sind nun gebunden (Runde {round}).",
+      "EngagedRemovedStartCombat": "<b>{token}</b> ist nicht mehr gebunden (Kampfbeginn).",
+      "EngagedRemovedNoLongerEngaged": "<b>{token}</b> ist nicht mehr gebunden (keine Nahkampfaktion in Runde {round}).",
+      "EngagedRemovedUnconscious": "<b>{token}</b> ist nicht mehr gebunden (bewusstlos).",
+      "EngagedRemovedUnconsciousOpponent": "<b>{token}</b> ist nicht mehr gebunden (Gegner bewusstlos).",
+      "EngagedRemovedEndCombat": "<b>{token}</b> ist nicht mehr gebunden (Kampf beendet)."
+    }
+  }
+}

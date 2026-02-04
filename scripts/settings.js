@@ -1,0 +1,54 @@
+export const MODULE_ID = "wfrp4e-battle-status";
+
+export function registerSettings() {
+  
+  game.settings.register(MODULE_ID, "enableAutoEngaged", {
+    name: game.i18n.localize("wfrp4e_battle_status.Settings.EnableAutoEngaged.Name"),
+    hint: game.i18n.localize("wfrp4e_battle_status.Settings.EnableAutoEngaged.Hint"),
+    scope: "world",
+    config: true,
+    default: true,
+    type: Boolean
+  });
+
+  game.settings.register(MODULE_ID, "requireActiveCombat", {
+    name: game.i18n.localize("wfrp4e_battle_status.Settings.RequireActiveCombat.Name"),
+    hint: game.i18n.localize("wfrp4e_battle_status.Settings.RequireActiveCombat.Hint"),
+    scope: "world",
+    config: true,
+    type: Boolean,
+    default: true
+  });
+
+  game.settings.register(MODULE_ID, "combatantRequirement", {
+    name: game.i18n.localize("wfrp4e_battle_status.Settings.CombatantRequirement.Name"),
+    hint: game.i18n.localize("wfrp4e_battle_status.Settings.CombatantRequirement.Hint"),
+    scope: "world",
+    config: true,
+    type: String,
+    choices: {
+      both: game.i18n.localize("wfrp4e_battle_status.Settings.CombatantRequirement.Choices.Both"),
+      either: game.i18n.localize("wfrp4e_battle_status.Settings.CombatantRequirement.Choices.Either"),
+      none: game.i18n.localize("wfrp4e_battle_status.Settings.CombatantRequirement.Choices.None")
+    },
+    default: "both"
+  });
+
+  game.settings.register(MODULE_ID, "enableChatMessages", {
+    name: game.i18n.localize("wfrp4e_battle_status.Settings.EnableChatMessages.Name"),
+    hint: game.i18n.localize("wfrp4e_battle_status.Settings.EnableChatMessages.Hint"),
+    scope: "client",
+    config: true,
+    default: true,
+    type: Boolean
+  });
+
+  game.settings.register(MODULE_ID, "enableDebugLog", {
+    name: game.i18n.localize("wfrp4e_battle_status.Settings.EnableDebugLog.Name"),
+    hint: game.i18n.localize("wfrp4e_battle_status.Settings.EnableDebugLog.Hint"),
+    scope: "client",
+    config: true,
+    default: false,
+    type: Boolean
+  });
+}

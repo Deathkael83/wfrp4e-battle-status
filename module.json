@@ -1,0 +1,74 @@
+{
+  "id": "wfrp4e-battle-status",
+  "title": "WFRP4e - Battle Status",
+  "description": "Automatically manages the Engaged condition in WFRP4e based on actual melee combat activity, with optional GM-only chat feedback.",
+  "version": "1.0.0",
+  
+  "icon": "icons/battle-status.webp",
+  
+  "compatibility": {
+    "minimum": "13",
+    "verified": "13"
+  },
+  "authors": [
+    {
+      "name": "Deathkael83"
+    }
+  ],
+  "esmodules": [
+    "scripts/settings.js",
+    "scripts/main.js"
+  ],
+  "scripts": [],
+  "styles": [],
+  "packs": [],
+  "relationships": {
+    "systems": [
+      {
+        "id": "wfrp4e",
+        "type": "system",
+        "compatibility": {
+          "minimum": "7",
+          "verified": "9"
+        }
+      }
+    ]
+  },
+  "languages": [
+    {
+      "lang": "en",
+      "name": "English",
+      "path": "lang/en.json"
+    },
+    {
+      "lang": "it",
+      "name": "Italiano",
+      "path": "lang/it.json"
+    },
+    {
+      "lang": "fr",
+      "name": "Français",
+      "path": "lang/fr.json"
+    },
+    {
+      "lang": "es",
+      "name": "Español",
+      "path": "lang/es.json"
+    },
+    {
+      "lang": "de",
+      "name": "Deutsch",
+      "path": "lang/de.json"
+    },
+    {
+      "lang": "pt-BR",
+      "name": "Português (Brasil)",
+      "path": "lang/pt-BR.json"
+    }
+  ],
+  "url": "https://github.com/Deathkael83/wfrp4e-battle-status",
+  "manifest": "https://github.com/Deathkael83/wfrp4e-auto-engaged/releases/latest/download/module.json",
+  "download": "https://github.com/Deathkael83/wfrp4e-auto-engaged/releases/latest/download/module.zip",
+  "license": "LICENSE",
+  "flags": {}
+}

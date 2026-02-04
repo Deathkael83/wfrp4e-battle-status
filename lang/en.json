@@ -1,0 +1,35 @@
+{
+  "wfrp4e_battle_status": {
+    "UI": {
+      "SystemAlias": "System",
+      "Unknown": "Unknown"
+    },
+    "Settings": {
+      "EnableAutoEngaged": {
+        "Name": "Enable automatic Engaged handling",
+        "Hint": "Enables or disables all automatic handling of the Engaged battle status."
+        },
+      "RequireActiveCombat": {
+        "Name": "Apply Engaged only during active combat",
+        "Hint": "When enabled, the Engaged status is applied only after combat has started (round 1+). This setting is ignored if automatic Engaged handling is disabled."
+        },
+      "CombatantRequirement": {
+        "Name": "Engagement eligibility",
+        "Hint": "Defines whether both actors, only one, or none must be active combatants for Engaged to be applied. This setting applies only when automatic Engaged handling is enabled.",
+          "Choices": {
+            "Both": "Both actors must be combatants",
+            "Either": "At least one actor must be a combatant",
+            "None": "Combatant status is not required"
+            }
+        }
+    },
+    "Chat": {
+      "EngagedAppliedPair": "<b>{attacker}</b> and <b>{defender}</b> are now engaged (round {round}).",
+      "EngagedRemovedStartCombat": "<b>{token}</b> is no longer engaged (combat start).",
+      "EngagedRemovedNoLongerEngaged": "<b>{token}</b> is no longer engaged (no melee last round {round}).",
+      "EngagedRemovedUnconscious": "<b>{token}</b> is no longer engaged (unconscious).",
+      "EngagedRemovedUnconsciousOpponent": "<b>{token}</b> is no longer engaged (opponent unconscious).",
+      "EngagedRemovedEndCombat": "<b>{token}</b> is no longer engaged (combat ended)."
+    }
+  }
+}

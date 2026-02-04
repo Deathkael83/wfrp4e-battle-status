@@ -1,0 +1,43 @@
+{
+  "wfrp4e_battle_status": {
+    "UI": {
+      "SystemAlias": "Sistema",
+      "Unknown": "Desconhecido"
+    },
+    "Settings": {
+      "EnableAutoEngaged": {
+        "Name": "Ativar gerenciamento automático de Engajado",
+        "Hint": "Ativa ou desativa todo o gerenciamento automático do estado de batalha Engajado."
+      },
+      "RequireActiveCombat": {
+        "Name": "Aplicar Engajado apenas durante combate ativo",
+        "Hint": "Quando ativado, o estado Engajado é aplicado apenas após o combate ter sido iniciado (rodada 1+). Esta opção é ignorada se o gerenciamento automático de Engajado estiver desativado."
+      },
+      "CombatantRequirement": {
+        "Name": "Elegibilidade para engajamento",
+        "Hint": "Define se ambos os atores, apenas um ou nenhum devem ser combatentes ativos para que o estado Engajado seja aplicado. Esta opção se aplica somente quando o gerenciamento automático de Engajado estiver ativado.",
+        "Choices": {
+          "Both": "Ambos os atores devem ser combatentes",
+          "Either": "Pelo menos um ator deve ser combatente",
+          "None": "Não é necessário ser combatente"
+        }
+      },
+      "EnableChatMessages": {
+        "Name": "Mensagens de chat para estados de batalha",
+        "Hint": "Exibe mensagens no chat quando estados de batalha são aplicados ou removidos (apenas MJ e assistentes do MJ)."
+      },
+      "EnableDebugLog": {
+        "Name": "Ativar registro de depuração",
+        "Hint": "Escreve informações de depuração no console do navegador."
+      }
+    },
+    "Chat": {
+      "EngagedAppliedPair": "<b>{attacker}</b> e <b>{defender}</b> estão agora engajados (rodada {round}).",
+      "EngagedRemovedStartCombat": "<b>{token}</b> não está mais engajado (início do combate).",
+      "EngagedRemovedNoLongerEngaged": "<b>{token}</b> não está mais engajado (nenhum combate corpo a corpo na rodada {round}).",
+      "EngagedRemovedUnconscious": "<b>{token}</b> não está mais engajado (inconsciente).",
+      "EngagedRemovedUnconsciousOpponent": "<b>{token}</b> não está mais engajado (oponente inconsciente).",
+      "EngagedRemovedEndCombat": "<b>{token}</b> não está mais engajado (combate encerrado)."
+    }
+  }
+}

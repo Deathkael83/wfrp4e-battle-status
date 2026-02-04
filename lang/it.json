@@ -1,0 +1,43 @@
+{
+  "wfrp4e_battle_status": {
+    "UI": {
+      "SystemAlias": "Sistema",
+      "Unknown": "Sconosciuto"
+    },
+    "Settings": {
+      "EnableAutoEngaged": {
+        "Name": "Abilita gestione automatica di Ingaggiato",
+        "Hint": "Abilita o disabilita tutta la gestione automatica dello stato Ingaggiato."
+      },
+      "RequireActiveCombat": {
+        "Name": "Applica Ingaggiato solo durante un combattimento attivo",
+        "Hint": "Se abilitato, Ingaggiato viene applicato solo dopo l’avvio del combattimento (round 1+). Questa opzione è ignorata se la gestione automatica di Ingaggiato è disabilitata."
+      },
+      "CombatantRequirement": {
+        "Name": "Idoneità all’ingaggio",
+        "Hint": "Definisce se entrambi gli attori, solo uno o nessuno devono essere combatant attivi perché Ingaggiato venga applicato. Questa opzione si applica solo quando la gestione automatica di Ingaggiato è abilitata.",
+        "Choices": {
+          "Both": "Entrambi devono essere combatant",
+          "Either": "Almeno uno deve essere combatant",
+          "None": "Non è richiesto essere combatant"
+        }
+      },
+      "EnableChatMessages": {
+        "Name": "Messaggi in chat per stati di battaglia",
+        "Hint": "Mostra messaggi in chat quando gli stati vengono applicati o rimossi (solo GM e Assistenti GM)."
+      },
+      "EnableDebugLog": {
+        "Name": "Abilita log di debug",
+        "Hint": "Scrive informazioni di debug nella console del browser."
+      }
+    },
+    "Chat": {
+      "EngagedAppliedPair": "<b>{attacker}</b> e <b>{defender}</b> sono ora ingaggiati (round {round}).",
+      "EngagedRemovedStartCombat": "<b>{token}</b> non è più ingaggiato (inizio combattimento).",
+      "EngagedRemovedNoLongerEngaged": "<b>{token}</b> non è più ingaggiato (nessuna mischia nel round {round}).",
+      "EngagedRemovedUnconscious": "<b>{token}</b> non è più ingaggiato (incosciente).",
+      "EngagedRemovedUnconsciousOpponent": "<b>{token}</b> non è più ingaggiato (avversario incosciente).",
+      "EngagedRemovedEndCombat": "<b>{token}</b> non è più ingaggiato (combattimento terminato)."
+    }
+  }
+}

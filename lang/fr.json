@@ -1,0 +1,43 @@
+{
+  "wfrp4e_battle_status": {
+    "UI": {
+      "SystemAlias": "Système",
+      "Unknown": "Inconnu"
+    },
+    "Settings": {
+      "EnableAutoEngaged": {
+        "Name": "Activer la gestion automatique d’Engagé",
+        "Hint": "Active ou désactive toute la gestion automatique de l’état de bataille Engagé."
+      },
+      "RequireActiveCombat": {
+        "Name": "Appliquer Engagé uniquement pendant un combat actif",
+        "Hint": "Lorsque cette option est activée, l’état Engagé est appliqué uniquement après le début du combat (round 1+). Cette option est ignorée si la gestion automatique d’Engagé est désactivée."
+      },
+      "CombatantRequirement": {
+        "Name": "Éligibilité à l’engagement",
+        "Hint": "Définit si les deux acteurs, un seul ou aucun doivent être des combattants actifs pour que l’état Engagé soit appliqué. Cette option s’applique uniquement lorsque la gestion automatique d’Engagé est activée.",
+        "Choices": {
+          "Both": "Les deux acteurs doivent être des combattants",
+          "Either": "Au moins un acteur doit être un combattant",
+          "None": "Le statut de combattant n’est pas requis"
+        }
+      },
+      "EnableChatMessages": {
+        "Name": "Messages de discussion pour les états de bataille",
+        "Hint": "Affiche des messages dans la discussion lorsque des états de bataille sont appliqués ou supprimés (MJ et assistants MJ uniquement)."
+      },
+      "EnableDebugLog": {
+        "Name": "Activer le journal de débogage",
+        "Hint": "Écrit des informations de débogage dans la console du navigateur."
+      }
+    },
+    "Chat": {
+      "EngagedAppliedPair": "<b>{attacker}</b> et <b>{defender}</b> sont maintenant engagés (round {round}).",
+      "EngagedRemovedStartCombat": "<b>{token}</b> n’est plus engagé (début du combat).",
+      "EngagedRemovedNoLongerEngaged": "<b>{token}</b> n’est plus engagé (aucune mêlée au round {round}).",
+      "EngagedRemovedUnconscious": "<b>{token}</b> n’est plus engagé (inconscient).",
+      "EngagedRemovedUnconsciousOpponent": "<b>{token}</b> n’est plus engagé (adversaire inconscient).",
+      "EngagedRemovedEndCombat": "<b>{token}</b> n’est plus engagé (combat terminé)."
+    }
+  }
+}
