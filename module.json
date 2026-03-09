@@ -67,7 +67,7 @@
     }
   ],
   "url": "https://github.com/Deathkael83/wfrp4e-battle-status",
-  "manifest": "https://raw.githubusercontent.com/Deathkael83/wfrp4e-battle-status/feature/token-engagement/module.json",
+  "manifest": "https://raw.githubusercontent.com/Deathkael83/wfrp4e-battle-status/refs/heads/feature/token-engagement/module.json",
   "download": "https://codeload.github.com/Deathkael83/wfrp4e-battle-status/zip/refs/heads/feature/token-engagement",
   "license": "LICENSE",
   "flags": {}
