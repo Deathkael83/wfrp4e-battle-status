@@ -1,7 +1,7 @@
 {
   "id": "wfrp4e-battle-status",
   "title": "WFRP4e - Battle Status",
-  "description": "description": "Automatically manages the Engaged condition in WFRP4e based on melee combat activity, including visual engagement indicators and optional GM-only notifications.",
+  "description": "Automatically manages the Engaged condition in WFRP4e based on melee combat activity, including visual engagement indicators and optional GM-only notifications.",
   "version": "1.1.0",
   
   "icon": "icons/battle-status.webp",
@@ -67,7 +67,7 @@
     }
   ],
   "url": "https://github.com/Deathkael83/wfrp4e-battle-status",
-  "manifest": "https://raw.githubusercontent.com/Deathkael83/wfrp4e-battle-status/refs/heads/feature/token-engagement/module.json",
+  "manifest": "https://raw.githubusercontent.com/Deathkael83/wfrp4e-battle-status/feature/token-engagement/module.json",
   "download": "https://codeload.github.com/Deathkael83/wfrp4e-battle-status/zip/refs/heads/feature/token-engagement",
   "license": "LICENSE",
   "flags": {}
