@@ -2,7 +2,8 @@
   "wfrp4e_battle_status": {
     "UI": {
       "SystemAlias": "Sistema",
-      "Unknown": "Sconosciuto"
+      "Unknown": "Sconosciuto",
+	  "EngagedList": "Ingaggiati"
     },
     "Settings": {
       "EnableAutoEngaged": {

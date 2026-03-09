@@ -83,9 +83,185 @@ function getCurrentRound() {
   return combat ? combat.round || 0 : 0;
 }
 
-function makePairKey(aId, bId) {
-  const ids = [aId, bId].sort();
+function makePairKey(aTokenId, bTokenId) {
+  const ids = [aTokenId, bTokenId].sort();
   return `${ids[0]}-${ids[1]}`;
+}
+
+function getTokenRefFromTest(test, actor, combat) {
+  if (!test) return null;
+
+  const ctx = test.context || test.data?.context || test._context || {};
+  const speaker = ctx.speaker || test.speaker || test.data?.speaker || {};
+
+  const sceneId = speaker.scene || canvas.scene?.id || combat?.scene?.id || null;
+  const tokenId = speaker.token || null;
+
+  if (sceneId && tokenId) {
+    return {
+      sceneId,
+      tokenId
+    };
+  }
+
+  // Fallback: try to resolve from combat by actor, only if unique
+  if (combat && actor) {
+    const matches = combat.combatants.filter((c) => c.actor && c.actor.id === actor.id);
+    if (matches.length === 1) {
+      const combatant = matches[0];
+      const resolvedSceneId = combat.scene?.id || canvas.scene?.id || sceneId || null;
+      const resolvedTokenId = combatant.token?.id || combatant.tokenId || null;
+
+      if (resolvedSceneId && resolvedTokenId) {
+        return {
+          sceneId: resolvedSceneId,
+          tokenId: resolvedTokenId
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+function getActiveTokenIdsFromPairs(pairs, round) {
+  const activeTokenIds = new Set();
+
+  for (const info of Object.values(pairs)) {
+    if (!info || typeof info.lastRound !== "number") continue;
+    if (info.lastRound !== round) continue;
+
+    if (info.aToken) activeTokenIds.add(info.aToken);
+    if (info.bToken) activeTokenIds.add(info.bToken);
+  }
+
+  return activeTokenIds;
+}
+
+function buildEngagementMap(pairs) {
+  const map = new Map();
+
+  for (const info of Object.values(pairs)) {
+    if (!info) continue;
+
+    const aToken = info.aToken;
+    const bToken = info.bToken;
+
+    if (!aToken || !bToken) continue;
+
+    if (!map.has(aToken)) map.set(aToken, new Set());
+    if (!map.has(bToken)) map.set(bToken, new Set());
+
+    map.get(aToken).add(bToken);
+    map.get(bToken).add(aToken);
+  }
+
+  return map;
+}
+
+function getSceneTokenName(sceneId, tokenId) {
+  const scene = game.scenes.get(sceneId) || canvas.scene;
+  const tokenDoc = scene?.tokens?.get(tokenId);
+  return tokenDoc?.name || tokenId;
+}
+
+function clearEngagementBadge(token) {
+  const existing = token?.mesh?.getChildByName("engagedBadge");
+  if (existing) {
+    token.mesh.removeChild(existing);
+    existing.destroy();
+  }
+
+  if (token?.mesh?.off) {
+    token.mesh.off("pointerover", token._engagedPointerOver);
+    token.mesh.off("pointerout", token._engagedPointerOut);
+  }
+
+  delete token._engagedPointerOver;
+  delete token._engagedPointerOut;
+  delete token._engagedTooltipText;
+
+  if (token?.mesh) {
+    token.mesh.eventMode = "auto";
+    token.mesh.cursor = null;
+  }
+
+  const html = token?.hud?.element?.[0];
+  if (html) html.removeAttribute("title");
+}
+
+function renderEngagementBadge(token, count) {
+  clearEngagementBadge(token);
+
+  if (!count) return;
+
+  const style = new PIXI.TextStyle({
+    fontSize: 16,
+    fontWeight: "bold",
+    fill: "#ffffff",
+    stroke: "#000000",
+    strokeThickness: 4
+  });
+
+  const text = new PIXI.Text(`⚔${count}`, style);
+  text.name = "engagedBadge";
+  text.anchor.set(1, 0);
+  text.x = token.w - text.width - 2;
+  text.y = 6;
+
+  token.mesh.addChild(text);
+}
+
+function attachEngagementTooltip(token, text) {
+  if (!token?.mesh || !text) return;
+
+  token._engagedTooltipText = text;
+
+  token.mesh.eventMode = "static";
+  token.mesh.cursor = "pointer";
+
+  token._engagedPointerOver = () => {
+    if (!token._engagedTooltipText) return;
+    token.mesh.tooltip = token._engagedTooltipText;
+  };
+
+  token._engagedPointerOut = () => {
+    token.mesh.tooltip = null;
+  };
+
+  token.mesh.on("pointerover", token._engagedPointerOver);
+  token.mesh.on("pointerout", token._engagedPointerOut);
+}
+
+function buildEngagementTooltip(sceneId, tokenId, engagementMap) {
+  const engagedSet = engagementMap.get(tokenId);
+  if (!engagedSet || !engagedSet.size) return null;
+
+  const names = Array.from(engagedSet).map((otherTokenId) => getSceneTokenName(sceneId, otherTokenId));
+
+  return `${t("wfrp4e_battle_status.UI.EngagedList")} (${names.length}): ${names.join(", ")}`;
+}
+
+async function refreshEngagementUI(combat) {
+  if (!canvas?.ready || !combat) return;
+
+  const pairs = duplicate((await combat.getFlag(MODULE_ID, "engagedPairs")) || {});
+  const engagementMap = buildEngagementMap(pairs);
+  const sceneId = canvas.scene?.id;
+
+  for (const token of canvas.tokens.placeables) {
+    clearEngagementBadge(token);
+
+    const engagedSet = engagementMap.get(token.id);
+    const count = engagedSet ? engagedSet.size : 0;
+
+    if (!count) continue;
+
+    renderEngagementBadge(token, count);
+
+    const tooltip = buildEngagementTooltip(sceneId, token.id, engagementMap);
+    if (tooltip) attachEngagementTooltip(token, tooltip);
+  }
 }
 
 function isActorValidForEngaged(actor) {
@@ -185,7 +361,7 @@ function actorIsUnconscious(actor) {
 // ---------------------------------------------------------------------------
 // Apply/track engagement pair
 // ---------------------------------------------------------------------------
-async function markEngagedPairActors(attackerTest, defenderTest) {
+async function markEngagedPairTokens(attackerTest, defenderTest) {
   const combat = getCurrentCombat();
   if (!combat) return;
 
@@ -195,17 +371,40 @@ async function markEngagedPairActors(attackerTest, defenderTest) {
   if (!attackerActor || !defenderActor) return;
   if (!isActorValidForEngaged(attackerActor) || !isActorValidForEngaged(defenderActor)) return;
 
+  const attackerTokenRef = getTokenRefFromTest(attackerTest, attackerActor, combat);
+  const defenderTokenRef = getTokenRefFromTest(defenderTest, defenderActor, combat);
+
+  if (!attackerTokenRef || !defenderTokenRef) {
+    debugLog("Unable to resolve token references for engagement pair", {
+      attacker: attackerActor.name,
+      defender: defenderActor.name
+    });
+    return;
+  }
+
+  if (attackerTokenRef.sceneId !== defenderTokenRef.sceneId) {
+    debugLog("Skipping engagement pair across different scenes", {
+      attacker: attackerTokenRef,
+      defender: defenderTokenRef
+    });
+    return;
+  }
+
   const currentRound = getCurrentRound();
   const pairs = duplicate((await combat.getFlag(MODULE_ID, "engagedPairs")) || {});
-  const key = makePairKey(attackerActor.id, defenderActor.id);
+  const key = makePairKey(attackerTokenRef.tokenId, defenderTokenRef.tokenId);
 
   pairs[key] = {
-    a: attackerActor.id,
-    b: defenderActor.id,
+    sceneId: attackerTokenRef.sceneId,
+    aToken: attackerTokenRef.tokenId,
+    bToken: defenderTokenRef.tokenId,
+    aActor: attackerActor.id,
+    bActor: defenderActor.id,
     lastRound: currentRound
   };
 
   await combat.setFlag(MODULE_ID, "engagedPairs", pairs);
+  await refreshEngagementUI(combat);
 
   await attackerActor.addCondition("engaged");
   await defenderActor.addCondition("engaged");
@@ -221,7 +420,12 @@ async function markEngagedPairActors(attackerTest, defenderTest) {
     })
   );
 
-  debugLog("Engaged applied", { attacker: attackerName, defender: defenderName, round: currentRound });
+  debugLog("Engaged applied", {
+    attacker: attackerName,
+    defender: defenderName,
+    round: currentRound,
+    pair: pairs[key]
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -241,6 +445,7 @@ async function handleRoundChange(combat, changed) {
   // Round 1: reset everything
   if (newRound === 1) {
     await combat.setFlag(MODULE_ID, "engagedPairs", {});
+	await refreshEngagementUI(combat);
     debugLog("Reset engagedPairs at combat start");
 
     for (const c of combat.combatants) {
@@ -263,18 +468,19 @@ async function handleRoundChange(combat, changed) {
 
   // Keep only pairs active in the previous round
   const stillPairs = {};
-  const activeActorIds = new Set();
+  const activeTokenIds = new Set();
 
   for (const [key, info] of Object.entries(pairs)) {
     if (!info || typeof info.lastRound !== "number") continue;
     if (info.lastRound !== previousRound) continue;
 
     stillPairs[key] = info;
-    activeActorIds.add(info.a);
-    activeActorIds.add(info.b);
+    activeTokenIds.add(info.aToken);
+    activeTokenIds.add(info.bToken);
   }
 
   await combat.setFlag(MODULE_ID, "engagedPairs", stillPairs);
+  await refreshEngagementUI(combat);
   debugLog("Updated engagedPairs end of round", { newRound, stillPairs });
 
   // Remove engaged from anyone not in an active pair
@@ -285,7 +491,12 @@ async function handleRoundChange(combat, changed) {
     const tokenName = c.token?.name || c.name || actor.name;
 
     try {
-      if (actor.hasCondition?.("engaged") && !activeActorIds.has(actor.id)) {
+      const tokenId = c.token?.id ?? c.tokenId;
+	  if (
+        tokenId &&
+        actor.hasCondition?.("engaged") &&
+        !activeTokenIds.has(tokenId)
+        ) {
         await actor.removeCondition("engaged");
         gmChat(
           tf("wfrp4e_battle_status.Chat.EngagedRemovedNoLongerEngaged", {
@@ -313,8 +524,9 @@ async function handleActorUnconsciousCleanup(actor, combat, pairs) {
 
   for (const [key, info] of Object.entries(pairs)) {
     if (!info) continue;
-    if (info.a === actorId || info.b === actorId) {
-      const otherId = info.a === actorId ? info.b : info.a;
+
+    if (info.aActor === actorId || info.bActor === actorId) {
+      const otherId = info.aActor === actorId ? info.bActor : info.aActor;
       partnerIds.add(otherId);
       delete pairs[key];
     }
@@ -322,7 +534,8 @@ async function handleActorUnconsciousCleanup(actor, combat, pairs) {
 
   if (actor.hasCondition?.("engaged")) {
     await actor.removeCondition("engaged");
-    const combatant = combat.combatants.find((c) => c.actor && c.actor.id === actorId);
+
+    const combatant = combat.combatants.find((c) => c.actor?.id === actorId);
     const tokenName = combatant?.token?.name || combatant?.name || actor.name;
 
     gmChat(tf("wfrp4e_battle_status.Chat.EngagedRemovedUnconscious", { token: tokenName }));
@@ -330,17 +543,21 @@ async function handleActorUnconsciousCleanup(actor, combat, pairs) {
   }
 
   for (const partnerId of partnerIds) {
+
     const stillInPair = Object.values(pairs).some(
-      (info) => info && (info.a === partnerId || info.b === partnerId)
+      (info) => info && (info.aActor === partnerId || info.bActor === partnerId)
     );
+
     if (stillInPair) continue;
 
-    const combatant = combat.combatants.find((c) => c.actor && c.actor.id === partnerId);
+    const combatant = combat.combatants.find((c) => c.actor?.id === partnerId);
     const partnerActor = combatant?.actor || game.actors.get(partnerId);
+
     if (!partnerActor) continue;
 
     if (partnerActor.hasCondition?.("engaged")) {
       await partnerActor.removeCondition("engaged");
+
       const tokenName = combatant?.token?.name || combatant?.name || partnerActor.name;
 
       gmChat(tf("wfrp4e_battle_status.Chat.EngagedRemovedUnconsciousOpponent", { token: tokenName }));
@@ -375,6 +592,7 @@ async function handleTurnChange(combat, changed) {
   }
 
   await combat.setFlag(MODULE_ID, "engagedPairs", pairs);
+  await refreshEngagementUI(combat);
 }
 
 // ---------------------------------------------------------------------------
@@ -428,7 +646,7 @@ Hooks.once("ready", () => {
       if (!passesCombatantRequirement(attackerActor, defenderActor, combat)) return;
 
       // Apply Engaged
-      await markEngagedPairActors(attackerTest, defenderTest);
+      await markEngagedPairTokens(attackerTest, defenderTest);
 
     } catch (err) {
       debugLog("Error in opposedTestResult", err);
@@ -478,6 +696,12 @@ Hooks.once("ready", () => {
 
     try {
       await combat.unsetFlag(MODULE_ID, "engagedPairs");
+	  
+	  if (canvas?.ready) {
+		  for (const token of canvas.tokens.placeables) {
+			  clearEngagementBadge(token);
+			  }
+			  }
     } catch (e) {
       debugLog("Error unsetting engagedPairs at combat end", e);
     }
