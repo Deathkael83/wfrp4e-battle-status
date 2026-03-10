@@ -223,6 +223,47 @@ async function saveEngagementPairs(combat, pairs) {
   await refreshEngagementUI(combat);
 }
 
+async function normalizeEngagementState(combat, pairs) {
+  if (!combat) return;
+
+  const normalized = {};
+  const activeTokenIds = new Set();
+
+  for (const [key, info] of Object.entries(pairs || {})) {
+    if (!info) continue;
+
+    const aCombatant = combat.combatants.find(c => (c.token?.id ?? c.tokenId) === info.aToken);
+    const bCombatant = combat.combatants.find(c => (c.token?.id ?? c.tokenId) === info.bToken);
+
+    const aActor = aCombatant?.actor || game.actors.get(info.aActor);
+    const bActor = bCombatant?.actor || game.actors.get(info.bActor);
+
+    if (!aActor || !bActor) continue;
+    if (actorIsUnconscious(aActor) || actorIsUnconscious(bActor)) continue;
+    if (aActor.hasCondition?.("dead") || bActor.hasCondition?.("dead")) continue;
+    if (!aActor.hasCondition?.("engaged")) continue;
+    if (!bActor.hasCondition?.("engaged")) continue;
+
+    normalized[key] = info;
+    activeTokenIds.add(info.aToken);
+    activeTokenIds.add(info.bToken);
+  }
+
+  for (const c of combat.combatants) {
+    const actor = c.actor;
+    const tokenId = c.token?.id ?? c.tokenId;
+    if (!actor || !tokenId) continue;
+
+    const stillEngaged = activeTokenIds.has(tokenId);
+
+    if (!stillEngaged && actor.hasCondition?.("engaged")) {
+      await actor.removeCondition("engaged");
+    }
+  }
+
+  await saveEngagementPairs(combat, normalized);
+}
+
 function showEngagementTooltip(token, text) {
   const existing = token.getChildByName("engagedTooltip");
   if (existing) {
@@ -603,52 +644,21 @@ async function handleRoundChange(combat, changed) {
 // ---------------------------------------------------------------------------
 async function handleActorUnconsciousCleanup(actor, combat, pairs) {
   const actorId = actor.id;
-  const partnerIds = new Set();
 
   for (const [key, info] of Object.entries(pairs)) {
     if (!info) continue;
 
     if (info.aActor === actorId || info.bActor === actorId) {
-      const otherId = info.aActor === actorId ? info.bActor : info.aActor;
-      partnerIds.add(otherId);
       delete pairs[key];
     }
   }
 
   if (actor.hasCondition?.("engaged")) {
     await actor.removeCondition("engaged");
-
-    const combatant = combat.combatants.find((c) => c.actor?.id === actorId);
-    const tokenName = combatant?.token?.name || combatant?.name || actor.name;
-
-    gmChat(tf("wfrp4e_battle_status.Chat.EngagedRemovedUnconscious", { token: tokenName }));
-    debugLog("Removed engaged due to unconscious (turn change)", { actor: tokenName, id: actorId });
   }
 
-  for (const partnerId of partnerIds) {
-
-    const stillInPair = Object.values(pairs).some(
-      (info) => info && (info.aActor === partnerId || info.bActor === partnerId)
-    );
-
-    if (stillInPair) continue;
-
-    const combatant = combat.combatants.find((c) => c.actor?.id === partnerId);
-    const partnerActor = combatant?.actor || game.actors.get(partnerId);
-
-    if (!partnerActor) continue;
-
-    if (partnerActor.hasCondition?.("engaged")) {
-      await partnerActor.removeCondition("engaged");
-
-      const tokenName = combatant?.token?.name || combatant?.name || partnerActor.name;
-
-      gmChat(tf("wfrp4e_battle_status.Chat.EngagedRemovedUnconsciousOpponent", { token: tokenName }));
-      debugLog("Removed engaged from partner of unconscious", { actor: tokenName, id: partnerId });
-    }
-  }
-
-  return pairs;
+  await normalizeEngagementState(combat, pairs);
+  return duplicate((await combat.getFlag(MODULE_ID, "engagedPairs")) || {});
 }
 
 async function handleManualEngagedRemoval(actor, combat) {
@@ -657,64 +667,18 @@ async function handleManualEngagedRemoval(actor, combat) {
   let pairs = duplicate((await combat.getFlag(MODULE_ID, "engagedPairs")) || {});
   if (!Object.keys(pairs).length) return;
 
-  const actorId = actor.id;
   const actorTokenIds = new Set(getCombatTokenIdsForActor(actor, combat));
   if (!actorTokenIds.size) return;
-
-  const partnerTokenIds = new Set();
-  const partnerActorIds = new Set();
-  let changed = false;
 
   for (const [key, info] of Object.entries(pairs)) {
     if (!info) continue;
 
-    const involvesToken =
-      actorTokenIds.has(info.aToken) || actorTokenIds.has(info.bToken);
-
-    if (!involvesToken) continue;
-
-    if (actorTokenIds.has(info.aToken)) {
-      partnerTokenIds.add(info.bToken);
-      if (info.bActor) partnerActorIds.add(info.bActor);
-    }
-
-    if (actorTokenIds.has(info.bToken)) {
-      partnerTokenIds.add(info.aToken);
-      if (info.aActor) partnerActorIds.add(info.aActor);
-    }
-
-    delete pairs[key];
-    changed = true;
-  }
-
-  if (!changed) return;
-
-  for (const partnerActorId of partnerActorIds) {
-    const stillInPair = Object.values(pairs).some(
-      (info) =>
-        info &&
-        (info.aActor === partnerActorId || info.bActor === partnerActorId)
-    );
-
-    if (stillInPair) continue;
-
-    const combatant = combat.combatants.find((c) => c.actor?.id === partnerActorId);
-    const partnerActor = combatant?.actor || game.actors.get(partnerActorId);
-    if (!partnerActor) continue;
-
-    if (partnerActor.hasCondition?.("engaged")) {
-      await partnerActor.removeCondition("engaged");
+    if (actorTokenIds.has(info.aToken) || actorTokenIds.has(info.bToken)) {
+      delete pairs[key];
     }
   }
 
-  await saveEngagementPairs(combat, pairs);
-
-  debugLog("Manual engaged removal synced", {
-    actor: actor.name,
-    actorId,
-    actorTokenIds: Array.from(actorTokenIds),
-    partnerTokenIds: Array.from(partnerTokenIds)
-  });
+  await normalizeEngagementState(combat, pairs);
 }
 
 async function handleManualEngagedRemovalByToken(tokenDoc, combat) {
@@ -724,45 +688,16 @@ async function handleManualEngagedRemovalByToken(tokenDoc, combat) {
   if (!Object.keys(pairs).length) return;
 
   const tokenId = tokenDoc.id;
-  const actor = tokenDoc.actor;
-
-  let changed = false;
 
   for (const [key, info] of Object.entries(pairs)) {
     if (!info) continue;
-    if (info.aToken !== tokenId && info.bToken !== tokenId) continue;
 
-    delete pairs[key];
-    changed = true;
-  }
-
-  if (!changed) return;
-
-  const engagementMap = buildEngagementMap(pairs);
-
-  if (actor?.hasCondition?.("engaged")) {
-    await actor.removeCondition("engaged");
-  }
-
-  for (const c of combat.combatants) {
-    const partnerTokenId = c.token?.id ?? c.tokenId;
-    const partnerActor = c.actor;
-    if (!partnerTokenId || !partnerActor) continue;
-    if (partnerTokenId === tokenId) continue;
-
-    const stillEngaged = engagementMap.has(partnerTokenId) && engagementMap.get(partnerTokenId).size > 0;
-
-    if (!stillEngaged && partnerActor.hasCondition?.("engaged")) {
-      await partnerActor.removeCondition("engaged");
+    if (info.aToken === tokenId || info.bToken === tokenId) {
+      delete pairs[key];
     }
   }
 
-  await saveEngagementPairs(combat, pairs);
-
-  debugLog("Manual engaged removal synced from token", {
-    token: tokenDoc.name,
-    tokenId
-  });
+  await normalizeEngagementState(combat, pairs);
 }
 
 async function handleManualEngagedRemovalByEffect(effect) {
@@ -916,7 +851,7 @@ Hooks.on("deleteActiveEffect", async (effect) => {
 });
 
   // 3) Combat end: remove engaged from all combatants
-  Hooks.on("deleteCombat", async (combat) => {
+Hooks.on("deleteCombat", async (combat) => {
   if (!game.settings.get(MODULE_ID, "enableAutoEngaged")) return;
 
   const me = game.users.current;
@@ -925,8 +860,6 @@ Hooks.on("deleteActiveEffect", async (effect) => {
   debugLog("Combat ended, cleaning engagement state");
 
   try {
-    await saveEngagementPairs(combat, {});
-
     for (const c of combat.combatants) {
       const actor = c.actor;
       if (!actor) continue;
@@ -936,6 +869,7 @@ Hooks.on("deleteActiveEffect", async (effect) => {
       }
     }
 
+    await saveEngagementPairs(combat, {});
     clearAllEngagementUI();
   } catch (err) {
     debugLog("Error during combat end cleanup", err);
