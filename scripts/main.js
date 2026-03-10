@@ -404,10 +404,11 @@ async function markEngagedPairTokens(attackerTest, defenderTest) {
   };
 
   await combat.setFlag(MODULE_ID, "engagedPairs", pairs);
-  await refreshEngagementUI(combat);
 
   await attackerActor.addCondition("engaged");
   await defenderActor.addCondition("engaged");
+
+  await refreshEngagementUI(combat);
 
   const attackerName = getTokenNameFromTest(attackerTest, attackerActor, combat);
   const defenderName = getTokenNameFromTest(defenderTest, defenderActor, combat);
@@ -445,7 +446,7 @@ async function handleRoundChange(combat, changed) {
   // Round 1: reset everything
   if (newRound === 1) {
     await combat.setFlag(MODULE_ID, "engagedPairs", {});
-	await refreshEngagementUI(combat);
+	
     debugLog("Reset engagedPairs at combat start");
 
     for (const c of combat.combatants) {
@@ -454,6 +455,9 @@ async function handleRoundChange(combat, changed) {
       try {
         if (actor.hasCondition?.("engaged")) {
           await actor.removeCondition("engaged");
+		  
+		  await refreshEngagementUI(combat);
+		  
           const tokenName = c.token?.name || c.name || actor.name;
           gmChat(tf("wfrp4e_battle_status.Chat.EngagedRemovedStartCombat", { token: tokenName }));
         }
@@ -480,7 +484,7 @@ async function handleRoundChange(combat, changed) {
   }
 
   await combat.setFlag(MODULE_ID, "engagedPairs", stillPairs);
-  await refreshEngagementUI(combat);
+
   debugLog("Updated engagedPairs end of round", { newRound, stillPairs });
 
   // Remove engaged from anyone not in an active pair
@@ -498,7 +502,10 @@ async function handleRoundChange(combat, changed) {
         !activeTokenIds.has(tokenId)
         ) {
         await actor.removeCondition("engaged");
-        gmChat(
+		
+		await refreshEngagementUI(combat);
+        
+		gmChat(
           tf("wfrp4e_battle_status.Chat.EngagedRemovedNoLongerEngaged", {
             token: tokenName,
             round: previousRound
