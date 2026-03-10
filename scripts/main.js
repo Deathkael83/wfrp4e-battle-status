@@ -772,6 +772,16 @@ async function handleManualEngagedRemovalByToken(tokenDoc, combat) {
   });
 }
 
+async function handleManualEngagedRemovalByEffect(effect) {
+  const actor = effect?.parent;
+  if (!actor) return;
+
+  const combat = getCurrentCombat();
+  if (!combat) return;
+
+  await handleManualEngagedRemoval(actor, combat);
+}
+
 // ---------------------------------------------------------------------------
 // Turn change cleanup (unconscious)
 // ---------------------------------------------------------------------------
@@ -801,8 +811,6 @@ async function handleTurnChange(combat, changed) {
 // ---------------------------------------------------------------------------
 // INIT (settings only)
 // ---------------------------------------------------------------------------
-const _engagedStateBeforeUpdate = new Map();
-const _engagedStateBeforeTokenUpdate = new Map();
 
 Hooks.once("init", () => {
   registerSettings();
@@ -873,6 +881,39 @@ Hooks.once("ready", () => {
       debugLog("Error in updateCombat", err);
     }
   });
+
+Hooks.on("deleteActiveEffect", async (effect) => {
+  try {
+    if (!game.settings.get(MODULE_ID, "enableAutoEngaged")) return;
+
+    const parent = effect?.parent;
+    if (!parent?.hasCondition) return;
+
+    const effectId =
+      effect.getFlag?.("wfrp4e", "conditionId") ||
+      effect.statusId ||
+      effect.name ||
+      effect.label;
+
+    const engagedLabel = game.i18n.localize("WFRP4E.ConditionName.Engaged");
+
+    const isEngagedEffect =
+      effectId === "engaged" ||
+      effectId === "Engaged" ||
+      effectId === engagedLabel;
+
+    if (!isEngagedEffect) return;
+
+    await handleManualEngagedRemovalByEffect(effect);
+
+    debugLog("Engaged removed manually via ActiveEffect", {
+      actor: parent.name,
+      effectId
+    });
+  } catch (err) {
+    debugLog("Error handling deleteActiveEffect for Engaged", err);
+  }
+});
 
   // 3) Combat end: remove engaged from all combatants
   Hooks.on("deleteCombat", async (combat) => {
