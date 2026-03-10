@@ -208,6 +208,21 @@ function clearAllEngagementUI() {
   }
 }
 
+async function saveEngagementPairs(combat, pairs) {
+  if (!combat) return;
+
+  const hasPairs = pairs && Object.keys(pairs).length > 0;
+
+  if (!hasPairs) {
+    await combat.unsetFlag(MODULE_ID, "engagedPairs");
+    clearAllEngagementUI();
+    return;
+  }
+
+  await combat.setFlag(MODULE_ID, "engagedPairs", pairs);
+  await refreshEngagementUI(combat);
+}
+
 function showEngagementTooltip(token, text) {
   const existing = token.getChildByName("engagedTooltip");
   if (existing) {
@@ -467,12 +482,10 @@ async function markEngagedPairTokens(attackerTest, defenderTest) {
     lastRound: currentRound
   };
 
-  await combat.setFlag(MODULE_ID, "engagedPairs", pairs);
+  await saveEngagementPairs(combat, pairs);
 
   await attackerActor.addCondition("engaged");
   await defenderActor.addCondition("engaged");
-
-  await refreshEngagementUI(combat);
 
   const attackerName = getTokenNameFromTest(attackerTest, attackerActor, combat);
   const defenderName = getTokenNameFromTest(defenderTest, defenderActor, combat);
@@ -511,7 +524,7 @@ async function handleRoundChange(combat, changed) {
 
   // Round 1: reset everything
   if (newRound === 1) {
-    await combat.setFlag(MODULE_ID, "engagedPairs", {});
+    await saveEngagementPairs(combat, {});
 	
     debugLog("Reset engagedPairs at combat start");
 
@@ -530,7 +543,6 @@ async function handleRoundChange(combat, changed) {
         debugLog("Error removing engaged at combat start", e);
       }
     }
-	if (needsRefresh) await refreshEngagementUI(combat);
     return;
   }
 
@@ -549,7 +561,7 @@ async function handleRoundChange(combat, changed) {
     activeTokenIds.add(info.bToken);
   }
 
-  await combat.setFlag(MODULE_ID, "engagedPairs", stillPairs);
+  await saveEngagementPairs(combat, stillPairs);
 
   debugLog("Updated engagedPairs end of round", { newRound, stillPairs });
 
@@ -568,9 +580,7 @@ async function handleRoundChange(combat, changed) {
         !activeTokenIds.has(tokenId)
         ) {
         await actor.removeCondition("engaged");
-		
-		await refreshEngagementUI(combat);
-        
+				     
 		gmChat(
           tf("wfrp4e_battle_status.Chat.EngagedRemovedNoLongerEngaged", {
             token: tokenName,
@@ -697,8 +707,7 @@ async function handleManualEngagedRemoval(actor, combat) {
     }
   }
 
-  await combat.setFlag(MODULE_ID, "engagedPairs", pairs);
-  await refreshEngagementUI(combat);
+  await saveEngagementPairs(combat, pairs);
 
   debugLog("Manual engaged removal synced", {
     actor: actor.name,
@@ -731,8 +740,7 @@ async function handleTurnChange(combat, changed) {
     pairs = await handleActorUnconsciousCleanup(c.actor, combat, pairs);
   }
 
-  await combat.setFlag(MODULE_ID, "engagedPairs", pairs);
-  await refreshEngagementUI(combat);
+  await saveEngagementPairs(combat, pairs);
 }
 
 // ---------------------------------------------------------------------------
@@ -834,17 +842,15 @@ Hooks.once("ready", () => {
 
   // 3) Combat end: remove engaged from all combatants
   Hooks.on("deleteCombat", async (combat) => {
-
   if (!game.settings.get(MODULE_ID, "enableAutoEngaged")) return;
 
   const me = game.users.current;
-  if (!me || ![3,4].includes(me.role)) return;
+  if (!me || ![3, 4].includes(me.role)) return;
 
   debugLog("Combat ended, cleaning engagement state");
 
   try {
-
-    await combat.setFlag(MODULE_ID, "engagedPairs", {});
+    await saveEngagementPairs(combat, {});
 
     for (const c of combat.combatants) {
       const actor = c.actor;
@@ -855,14 +861,10 @@ Hooks.once("ready", () => {
       }
     }
 
-    await combat.unsetFlag(MODULE_ID, "engagedPairs");
-
     clearAllEngagementUI();
-
   } catch (err) {
     debugLog("Error during combat end cleanup", err);
   }
-
 });
   
   Hooks.on("canvasReady", async () => {
