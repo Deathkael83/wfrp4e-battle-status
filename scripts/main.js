@@ -713,4 +713,10 @@ Hooks.once("ready", () => {
       debugLog("Error unsetting engagedPairs at combat end", e);
     }
   });
+  
+  Hooks.on("canvasReady", async () => {
+	  const combat = game.combat;
+	  if (!combat) return;
+	  await refreshEngagementUI(combat);
+	  });
 });
