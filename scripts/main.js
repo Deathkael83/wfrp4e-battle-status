@@ -478,6 +478,24 @@ function actorIsUnconscious(actor) {
   return false;
 }
 
+function effectMatchesCondition(effect, key, localizedKey) {
+  const effectId =
+    effect?.getFlag?.("wfrp4e", "conditionId") ||
+    effect?.statusId ||
+    effect?.name ||
+    effect?.label;
+
+  if (!effectId) return false;
+
+  const localized = game.i18n.localize(localizedKey);
+
+  return (
+    effectId === key ||
+    effectId === key.charAt(0).toUpperCase() + key.slice(1) ||
+    effectId === localized
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Apply/track engagement pair
 // ---------------------------------------------------------------------------
@@ -707,7 +725,21 @@ async function handleManualEngagedRemovalByEffect(effect) {
   const combat = getCurrentCombat();
   if (!combat) return;
 
-  const tokenDoc = actor.token ?? actor.prototypeToken ?? null;
+  let tokenDoc = null;
+
+  // Synthetic actor from token HUD: parent is the TokenDocument
+  if (actor.parent?.documentName === "Token") {
+    tokenDoc = actor.parent;
+  } else {
+    const tokenIds = getCombatTokenIdsForActor(actor, combat);
+    if (tokenIds.length === 1) {
+      const tokenId = tokenIds[0];
+      tokenDoc =
+        canvas.scene?.tokens?.get(tokenId) ||
+        combat.combatants.find((c) => (c.token?.id ?? c.tokenId) === tokenId)?.token ||
+        null;
+    }
+  }
 
   if (tokenDoc?.id) {
     await handleManualEngagedRemovalByToken(tokenDoc, combat);
@@ -824,29 +856,46 @@ Hooks.on("deleteActiveEffect", async (effect) => {
     const parent = effect?.parent;
     if (!parent?.hasCondition) return;
 
-    const effectId =
-      effect.getFlag?.("wfrp4e", "conditionId") ||
-      effect.statusId ||
-      effect.name ||
-      effect.label;
-
-    const engagedLabel = game.i18n.localize("WFRP4E.ConditionName.Engaged");
-
-    const isEngagedEffect =
-      effectId === "engaged" ||
-      effectId === "Engaged" ||
-      effectId === engagedLabel;
-
-    if (!isEngagedEffect) return;
+    if (!effectMatchesCondition(effect, "engaged", "WFRP4E.ConditionName.Engaged")) return;
 
     await handleManualEngagedRemovalByEffect(effect);
 
     debugLog("Engaged removed manually via ActiveEffect", {
-      actor: parent.name,
-      effectId
+      actor: parent.name
     });
   } catch (err) {
     debugLog("Error handling deleteActiveEffect for Engaged", err);
+  }
+});
+
+Hooks.on("createActiveEffect", async (effect) => {
+  try {
+    if (!game.settings.get(MODULE_ID, "enableAutoEngaged")) return;
+
+    const actor = effect?.parent;
+    if (!actor?.hasCondition) return;
+
+    const isUnconscious = effectMatchesCondition(effect, "unconscious", "WFRP4E.ConditionName.Unconscious");
+    const isDead = effectMatchesCondition(effect, "dead", "WFRP4E.ConditionName.Dead");
+
+    if (!isUnconscious && !isDead) return;
+
+    const combat = getCurrentCombat();
+    if (!combat) return;
+
+    let pairs = duplicate((await combat.getFlag(MODULE_ID, "engagedPairs")) || {});
+    if (!Object.keys(pairs).length) return;
+
+    pairs = await handleActorUnconsciousCleanup(actor, combat, pairs);
+    await saveEngagementPairs(combat, pairs);
+
+    debugLog("Engagement cleanup triggered by unconscious/dead", {
+      actor: actor.name,
+      unconscious: isUnconscious,
+      dead: isDead
+    });
+  } catch (err) {
+    debugLog("Error handling createActiveEffect for unconscious/dead", err);
   }
 });
 
