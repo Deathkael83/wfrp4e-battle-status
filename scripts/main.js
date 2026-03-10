@@ -874,53 +874,6 @@ Hooks.once("ready", () => {
     }
   });
 
-  Hooks.on("preUpdateActor", (actor) => {
-  _engagedStateBeforeUpdate.set(actor.id, actor.hasCondition?.("engaged") ?? false);
-});
-
-  Hooks.on("updateActor", async (actor) => {
-  try {
-    const hadEngaged = _engagedStateBeforeUpdate.get(actor.id);
-    _engagedStateBeforeUpdate.delete(actor.id);
-
-    const hasEngagedNow = actor.hasCondition?.("engaged") ?? false;
-
-    if (!hadEngaged || hasEngagedNow) return;
-
-    const combat = getCurrentCombat();
-    if (!combat) return;
-
-    await handleManualEngagedRemoval(actor, combat);
-  } catch (err) {
-    debugLog("Error syncing manual engaged removal", err);
-  }
-});
-
-  Hooks.on("preUpdateToken", (tokenDoc) => {
-  _engagedStateBeforeTokenUpdate.set(
-    tokenDoc.id,
-    tokenDoc.actor?.hasCondition?.("engaged") ?? false
-  );
-});
-
-  Hooks.on("updateToken", async (tokenDoc) => {
-  try {
-    const hadEngaged = _engagedStateBeforeTokenUpdate.get(tokenDoc.id);
-    _engagedStateBeforeTokenUpdate.delete(tokenDoc.id);
-
-    const hasEngagedNow = tokenDoc.actor?.hasCondition?.("engaged") ?? false;
-
-    if (!hadEngaged || hasEngagedNow) return;
-
-    const combat = getCurrentCombat();
-    if (!combat) return;
-
-    await handleManualEngagedRemovalByToken(tokenDoc, combat);
-  } catch (err) {
-    debugLog("Error syncing manual engaged removal from token", err);
-  }
-});
-
   // 3) Combat end: remove engaged from all combatants
   Hooks.on("deleteCombat", async (combat) => {
   if (!game.settings.get(MODULE_ID, "enableAutoEngaged")) return;
