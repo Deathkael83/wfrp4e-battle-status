@@ -717,6 +717,61 @@ async function handleManualEngagedRemoval(actor, combat) {
   });
 }
 
+async function handleManualEngagedRemovalByToken(tokenDoc, combat) {
+  if (!tokenDoc || !combat) return;
+
+  let pairs = duplicate((await combat.getFlag(MODULE_ID, "engagedPairs")) || {});
+  if (!Object.keys(pairs).length) return;
+
+  const tokenId = tokenDoc.id;
+  const actor = tokenDoc.actor;
+  const actorId = actor?.id || null;
+
+  const partnerActorIds = new Set();
+  let changed = false;
+
+  for (const [key, info] of Object.entries(pairs)) {
+    if (!info) continue;
+    if (info.aToken !== tokenId && info.bToken !== tokenId) continue;
+
+    if (info.aToken === tokenId && info.bActor) partnerActorIds.add(info.bActor);
+    if (info.bToken === tokenId && info.aActor) partnerActorIds.add(info.aActor);
+
+    delete pairs[key];
+    changed = true;
+  }
+
+  if (!changed) return;
+
+  if (actor?.hasCondition?.("engaged")) {
+    await actor.removeCondition("engaged");
+  }
+
+  for (const partnerActorId of partnerActorIds) {
+    const stillInPair = Object.values(pairs).some(
+      (info) => info && (info.aActor === partnerActorId || info.bActor === partnerActorId)
+    );
+
+    if (stillInPair) continue;
+
+    const combatant = combat.combatants.find((c) => c.actor?.id === partnerActorId);
+    const partnerActor = combatant?.actor || game.actors.get(partnerActorId);
+    if (!partnerActor) continue;
+
+    if (partnerActor.hasCondition?.("engaged")) {
+      await partnerActor.removeCondition("engaged");
+    }
+  }
+
+  await saveEngagementPairs(combat, pairs);
+
+  debugLog("Manual engaged removal synced from token", {
+    token: tokenDoc.name,
+    tokenId,
+    actorId
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Turn change cleanup (unconscious)
 // ---------------------------------------------------------------------------
@@ -747,6 +802,7 @@ async function handleTurnChange(combat, changed) {
 // INIT (settings only)
 // ---------------------------------------------------------------------------
 const _engagedStateBeforeUpdate = new Map();
+const _engagedStateBeforeTokenUpdate = new Map();
 
 Hooks.once("init", () => {
   registerSettings();
@@ -837,6 +893,31 @@ Hooks.once("ready", () => {
     await handleManualEngagedRemoval(actor, combat);
   } catch (err) {
     debugLog("Error syncing manual engaged removal", err);
+  }
+});
+
+  Hooks.on("preUpdateToken", (tokenDoc) => {
+  _engagedStateBeforeTokenUpdate.set(
+    tokenDoc.id,
+    tokenDoc.actor?.hasCondition?.("engaged") ?? false
+  );
+});
+
+  Hooks.on("updateToken", async (tokenDoc) => {
+  try {
+    const hadEngaged = _engagedStateBeforeTokenUpdate.get(tokenDoc.id);
+    _engagedStateBeforeTokenUpdate.delete(tokenDoc.id);
+
+    const hasEngagedNow = tokenDoc.actor?.hasCondition?.("engaged") ?? false;
+
+    if (!hadEngaged || hasEngagedNow) return;
+
+    const combat = getCurrentCombat();
+    if (!combat) return;
+
+    await handleManualEngagedRemovalByToken(tokenDoc, combat);
+  } catch (err) {
+    debugLog("Error syncing manual engaged removal from token", err);
   }
 });
 
