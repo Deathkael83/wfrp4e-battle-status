@@ -165,9 +165,23 @@ function getSceneTokenName(sceneId, tokenId) {
   return tokenDoc?.name || tokenId;
 }
 
+function getCombatTokenIdsForActor(actor, combat) {
+  if (!actor || !combat) return [];
+
+  return combat.combatants
+    .filter(c => c.actor?.id === actor.id)
+    .map(c => c.token?.id ?? c.tokenId)
+    .filter(Boolean);
+}
+
 function clearEngagementBadge(token) {
   const badge = token?.getChildByName("engagedBadge");
   if (badge) {
+	  
+	if (token._engagedBadge) {
+        token._engagedBadge.removeAllListeners();
+      }
+	  
     if (token._engagedBadgeOver) badge.off("pointerover", token._engagedBadgeOver);
     if (token._engagedBadgeOut) badge.off("pointerout", token._engagedBadgeOut);
 
@@ -177,9 +191,6 @@ function clearEngagementBadge(token) {
 
   const tooltip = token?.getChildByName("engagedTooltip");
   if (tooltip) {
-	  if (token._engagedBadge) {
-        token._engagedBadge.removeAllListeners();
-      }
     token.removeChild(tooltip);
     tooltip.destroy({ children: true });
   }
@@ -187,6 +198,14 @@ function clearEngagementBadge(token) {
   delete token._engagedBadge;
   delete token._engagedBadgeOver;
   delete token._engagedBadgeOut;
+}
+
+function clearAllEngagementUI() {
+  if (!canvas?.ready) return;
+
+  for (const token of canvas.tokens.placeables) {
+    clearEngagementBadge(token);
+  }
 }
 
 function showEngagementTooltip(token, text) {
@@ -260,7 +279,7 @@ function renderEngagementBadge(token, count, tooltipText) {
   text.y = 4;
   text.eventMode = "static";
   text.cursor = "help";
-  text.hitArea = new PIXI.Rectangle(-10, -10, text.width + 20, text.height + 20);
+  text.hitArea = new PIXI.Rectangle(-10, -10, 40, 40);
 
   if (tooltipText) {
     const onOver = () => showEngagementTooltip(token, tooltipText);
@@ -295,12 +314,14 @@ async function refreshEngagementUI(combat) {
   const sceneId = canvas.scene?.id;
 
   for (const token of canvas.tokens.placeables) {
-    clearEngagementBadge(token);
-
     const engagedSet = engagementMap.get(token.id);
-    const count = engagedSet ? engagedSet.size : 0;
 
-    if (!count) continue;
+    if (!engagedSet || !engagedSet.size) {
+      clearEngagementBadge(token);
+      continue;
+    }
+
+    const count = engagedSet.size;
 
     const tooltip = buildEngagementTooltip(sceneId, token.id, engagementMap);
     renderEngagementBadge(token, count, tooltip);
@@ -485,6 +506,8 @@ async function handleRoundChange(combat, changed) {
   if (!newRound || newRound < 1) return;
 
   const previousRound = newRound - 1;
+  
+  let needsRefresh = false;
 
   // Round 1: reset everything
   if (newRound === 1) {
@@ -498,8 +521,7 @@ async function handleRoundChange(combat, changed) {
       try {
         if (actor.hasCondition?.("engaged")) {
           await actor.removeCondition("engaged");
-		  
-		  await refreshEngagementUI(combat);
+          needsRefresh = true;
 		  
           const tokenName = c.token?.name || c.name || actor.name;
           gmChat(tf("wfrp4e_battle_status.Chat.EngagedRemovedStartCombat", { token: tokenName }));
@@ -508,6 +530,7 @@ async function handleRoundChange(combat, changed) {
         debugLog("Error removing engaged at combat start", e);
       }
     }
+	if (needsRefresh) await refreshEngagementUI(combat);
     return;
   }
 
@@ -618,6 +641,73 @@ async function handleActorUnconsciousCleanup(actor, combat, pairs) {
   return pairs;
 }
 
+async function handleManualEngagedRemoval(actor, combat) {
+  if (!actor || !combat) return;
+
+  let pairs = duplicate((await combat.getFlag(MODULE_ID, "engagedPairs")) || {});
+  if (!Object.keys(pairs).length) return;
+
+  const actorId = actor.id;
+  const actorTokenIds = new Set(getCombatTokenIdsForActor(actor, combat));
+  if (!actorTokenIds.size) return;
+
+  const partnerTokenIds = new Set();
+  const partnerActorIds = new Set();
+  let changed = false;
+
+  for (const [key, info] of Object.entries(pairs)) {
+    if (!info) continue;
+
+    const involvesToken =
+      actorTokenIds.has(info.aToken) || actorTokenIds.has(info.bToken);
+
+    if (!involvesToken) continue;
+
+    if (actorTokenIds.has(info.aToken)) {
+      partnerTokenIds.add(info.bToken);
+      if (info.bActor) partnerActorIds.add(info.bActor);
+    }
+
+    if (actorTokenIds.has(info.bToken)) {
+      partnerTokenIds.add(info.aToken);
+      if (info.aActor) partnerActorIds.add(info.aActor);
+    }
+
+    delete pairs[key];
+    changed = true;
+  }
+
+  if (!changed) return;
+
+  for (const partnerActorId of partnerActorIds) {
+    const stillInPair = Object.values(pairs).some(
+      (info) =>
+        info &&
+        (info.aActor === partnerActorId || info.bActor === partnerActorId)
+    );
+
+    if (stillInPair) continue;
+
+    const combatant = combat.combatants.find((c) => c.actor?.id === partnerActorId);
+    const partnerActor = combatant?.actor || game.actors.get(partnerActorId);
+    if (!partnerActor) continue;
+
+    if (partnerActor.hasCondition?.("engaged")) {
+      await partnerActor.removeCondition("engaged");
+    }
+  }
+
+  await combat.setFlag(MODULE_ID, "engagedPairs", pairs);
+  await refreshEngagementUI(combat);
+
+  debugLog("Manual engaged removal synced", {
+    actor: actor.name,
+    actorId,
+    actorTokenIds: Array.from(actorTokenIds),
+    partnerTokenIds: Array.from(partnerTokenIds)
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Turn change cleanup (unconscious)
 // ---------------------------------------------------------------------------
@@ -648,6 +738,8 @@ async function handleTurnChange(combat, changed) {
 // ---------------------------------------------------------------------------
 // INIT (settings only)
 // ---------------------------------------------------------------------------
+const _engagedStateBeforeUpdate = new Map();
+
 Hooks.once("init", () => {
   registerSettings();
 });
@@ -703,7 +795,6 @@ Hooks.once("ready", () => {
     }
   });
 
-
   // 2) updateCombat: round change + turn change
   Hooks.on("updateCombat", async (combat, changed) => {
     try {
@@ -719,50 +810,69 @@ Hooks.once("ready", () => {
     }
   });
 
+  Hooks.on("preUpdateActor", (actor) => {
+  _engagedStateBeforeUpdate.set(actor.id, actor.hasCondition?.("engaged") ?? false);
+});
+
+  Hooks.on("updateActor", async (actor) => {
+  try {
+    const hadEngaged = _engagedStateBeforeUpdate.get(actor.id);
+    _engagedStateBeforeUpdate.delete(actor.id);
+
+    const hasEngagedNow = actor.hasCondition?.("engaged") ?? false;
+
+    if (!hadEngaged || hasEngagedNow) return;
+
+    const combat = getCurrentCombat();
+    if (!combat) return;
+
+    await handleManualEngagedRemoval(actor, combat);
+  } catch (err) {
+    debugLog("Error syncing manual engaged removal", err);
+  }
+});
+
   // 3) Combat end: remove engaged from all combatants
   Hooks.on("deleteCombat", async (combat) => {
 
-    // MASTER TOGGLE
-    if (!game.settings.get(MODULE_ID, "enableAutoEngaged")) return;
-    
-    const me2 = game.users.current;
-    if (!me2 || ![3, 4].includes(me2.role)) return;
+  if (!game.settings.get(MODULE_ID, "enableAutoEngaged")) return;
 
-    debugLog("Combat ended, cleaning up Engaged.");
+  const me = game.users.current;
+  if (!me || ![3,4].includes(me.role)) return;
+
+  debugLog("Combat ended, cleaning engagement state");
+
+  try {
+
+    await combat.setFlag(MODULE_ID, "engagedPairs", {});
 
     for (const c of combat.combatants) {
       const actor = c.actor;
       if (!actor) continue;
-      try {
-        if (actor.hasCondition?.("engaged")) {
-          await actor.removeCondition("engaged");
-          const tokenName = c.token?.name || c.name || actor.name;
-          gmChat(tf("wfrp4e_battle_status.Chat.EngagedRemovedEndCombat", { token: tokenName }));
-        }
-      } catch (e) {
-        debugLog("Error removing engaged at combat end", e);
+
+      if (actor.hasCondition?.("engaged")) {
+        await actor.removeCondition("engaged");
       }
     }
 
-    try {
-      await combat.unsetFlag(MODULE_ID, "engagedPairs");
-	  
-    if (canvas?.ready) {
-      for (const token of canvas.tokens.placeables) {
-      clearEngagementBadge(token);
-      }
+    await combat.unsetFlag(MODULE_ID, "engagedPairs");
+
+    clearAllEngagementUI();
+
+  } catch (err) {
+    debugLog("Error during combat end cleanup", err);
+  }
+
+});
+  
+  Hooks.on("canvasReady", async () => {
+    const combat = game.combat;
+
+    if (!combat) {
+      clearAllEngagementUI();
+      return;
     }
 
     await refreshEngagementUI(combat);
-	
-    } catch (e) {
-      debugLog("Error unsetting engagedPairs at combat end", e);
-    }
   });
-  
-  Hooks.on("canvasReady", async () => {
-	  const combat = game.combat;
-	  if (!combat) return;
-	  await refreshEngagementUI(combat);
-	  });
 });
