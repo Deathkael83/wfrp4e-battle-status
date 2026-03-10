@@ -166,24 +166,24 @@ function getSceneTokenName(sceneId, tokenId) {
 }
 
 function clearEngagementBadge(token) {
-  const existing = token?.mesh?.getChildByName("engagedBadge");
+  const existing = token?.getChildByName("engagedBadge");
   if (existing) {
-    token.mesh.removeChild(existing);
+    token.removeChild(existing);
     existing.destroy();
   }
 
-  if (token?.mesh?.off) {
-    token.mesh.off("pointerover", token._engagedPointerOver);
-    token.mesh.off("pointerout", token._engagedPointerOut);
+  if (token?.off) {
+    token.off("pointerover", token._engagedPointerOver);
+    token.off("pointerout", token._engagedPointerOut);
   }
 
   delete token._engagedPointerOver;
   delete token._engagedPointerOut;
   delete token._engagedTooltipText;
 
-  if (token?.mesh) {
-    token.mesh.eventMode = "auto";
-    token.mesh.cursor = null;
+  if (token) {
+    token.eventMode = "auto";
+    token.cursor = null;
   }
 
   const html = token?.hud?.element?.[0];
@@ -209,28 +209,28 @@ function renderEngagementBadge(token, count) {
   text.x = token.w - text.width - 2;
   text.y = 6;
 
-  token.mesh.addChild(text);
+  token.addChild(text);
+  token.sortableChildren = true;
+  token._engagedBadge = text;
 }
 
 function attachEngagementTooltip(token, text) {
-  if (!token?.mesh || !text) return;
+  if (!token || !text) return;
 
   token._engagedTooltipText = text;
 
-  token.mesh.eventMode = "static";
-  token.mesh.cursor = "pointer";
+  token.eventMode = "static";
+  token.cursor = "pointer";
 
   token._engagedPointerOver = () => {
     if (!token._engagedTooltipText) return;
-    token.mesh.tooltip = token._engagedTooltipText;
+    console.log(token._engagedTooltipText);
   };
 
-  token._engagedPointerOut = () => {
-    token.mesh.tooltip = null;
-  };
+  token._engagedPointerOut = () => {};
 
-  token.mesh.on("pointerover", token._engagedPointerOver);
-  token.mesh.on("pointerout", token._engagedPointerOut);
+  token.on("pointerover", token._engagedPointerOver);
+  token.on("pointerout", token._engagedPointerOut);
 }
 
 function buildEngagementTooltip(sceneId, tokenId, engagementMap) {
