@@ -166,71 +166,116 @@ function getSceneTokenName(sceneId, tokenId) {
 }
 
 function clearEngagementBadge(token) {
-  const existing = token?.getChildByName("engagedBadge");
-  if (existing) {
-    token.removeChild(existing);
-    existing.destroy();
+  const badge = token?.getChildByName("engagedBadge");
+  if (badge) {
+    if (token._engagedBadgeOver) badge.off("pointerover", token._engagedBadgeOver);
+    if (token._engagedBadgeOut) badge.off("pointerout", token._engagedBadgeOut);
+
+    token.removeChild(badge);
+    badge.destroy();
   }
 
-  if (token?.off) {
-    token.off("pointerover", token._engagedPointerOver);
-    token.off("pointerout", token._engagedPointerOut);
+  const tooltip = token?.getChildByName("engagedTooltip");
+  if (tooltip) {
+	  if (token._engagedBadge) {
+        token._engagedBadge.removeAllListeners();
+      }
+    token.removeChild(tooltip);
+    tooltip.destroy({ children: true });
   }
 
-  delete token._engagedPointerOver;
-  delete token._engagedPointerOut;
-  delete token._engagedTooltipText;
-
-  if (token) {
-    token.eventMode = "auto";
-    token.cursor = null;
-  }
-
-  const html = token?.hud?.element?.[0];
-  if (html) html.removeAttribute("title");
+  delete token._engagedBadge;
+  delete token._engagedBadgeOver;
+  delete token._engagedBadgeOut;
 }
 
-function renderEngagementBadge(token, count) {
+function showEngagementTooltip(token, text) {
+  const existing = token.getChildByName("engagedTooltip");
+  if (existing) {
+    token.removeChild(existing);
+    existing.destroy({ children: true });
+  }
+
+  const label = new PIXI.Text(text, new PIXI.TextStyle({
+    fontSize: 14,
+    fill: "#ffffff",
+    stroke: "#000000",
+    strokeThickness: 3,
+    wordWrap: true,
+    wordWrapWidth: 220
+  }));
+
+  const paddingX = 8;
+  const paddingY = 6;
+  const width = label.width + paddingX * 2;
+  const height = label.height + paddingY * 2;
+
+  const bg = new PIXI.Graphics();
+  bg.beginFill(0x000000, 0.85);
+  bg.lineStyle(1, 0xffffff, 0.7);
+  bg.drawRoundedRect(0, 0, width, height, 6);
+  bg.endFill();
+
+  label.x = paddingX;
+  label.y = paddingY;
+
+  const container = new PIXI.Container();
+  container.name = "engagedTooltip";
+  container.zIndex = 1000;
+
+  container.addChild(bg);
+  container.addChild(label);
+
+  container.x = Math.max(0, token.w - width);
+  container.y = -(height + 6);
+
+  token.addChild(container);
+  token.sortableChildren = true;
+}
+
+function hideEngagementTooltip(token) {
+  const tooltip = token?.getChildByName("engagedTooltip");
+  if (!tooltip) return;
+
+  token.removeChild(tooltip);
+  tooltip.destroy({ children: true });
+}
+
+function renderEngagementBadge(token, count, tooltipText) {
   clearEngagementBadge(token);
 
   if (!count) return;
 
-  const style = new PIXI.TextStyle({
+  const text = new PIXI.Text(`⚔${count}`, new PIXI.TextStyle({
     fontSize: 16,
     fontWeight: "bold",
     fill: "#ffffff",
     stroke: "#000000",
     strokeThickness: 4
-  });
+  }));
 
-  const text = new PIXI.Text(`⚔${count}`, style);
   text.name = "engagedBadge";
   text.anchor.set(1, 0);
-  text.x = token.w - text.width - 2;
-  text.y = 6;
+  text.x = token.w - 4;
+  text.y = 4;
+  text.eventMode = "static";
+  text.cursor = "help";
+  text.hitArea = new PIXI.Rectangle(-10, -10, text.width + 20, text.height + 20);
+
+  if (tooltipText) {
+    const onOver = () => showEngagementTooltip(token, tooltipText);
+    const onOut = () => hideEngagementTooltip(token);
+
+    text.on("pointerover", onOver);
+    text.on("pointerout", onOut);
+
+    token._engagedBadgeOver = onOver;
+    token._engagedBadgeOut = onOut;
+  }
 
   token.addChild(text);
   token.sortableChildren = true;
   token._engagedBadge = text;
-}
-
-function attachEngagementTooltip(token, text) {
-  if (!token || !text) return;
-
-  token._engagedTooltipText = text;
-
-  token.eventMode = "static";
-  token.cursor = "pointer";
-
-  token._engagedPointerOver = () => {
-    if (!token._engagedTooltipText) return;
-    console.log(token._engagedTooltipText);
-  };
-
-  token._engagedPointerOut = () => {};
-
-  token.on("pointerover", token._engagedPointerOver);
-  token.on("pointerout", token._engagedPointerOut);
 }
 
 function buildEngagementTooltip(sceneId, tokenId, engagementMap) {
@@ -257,10 +302,8 @@ async function refreshEngagementUI(combat) {
 
     if (!count) continue;
 
-    renderEngagementBadge(token, count);
-
     const tooltip = buildEngagementTooltip(sceneId, token.id, engagementMap);
-    if (tooltip) attachEngagementTooltip(token, tooltip);
+    renderEngagementBadge(token, count, tooltip);
   }
 }
 
@@ -704,11 +747,14 @@ Hooks.once("ready", () => {
     try {
       await combat.unsetFlag(MODULE_ID, "engagedPairs");
 	  
-	  if (canvas?.ready) {
-		  for (const token of canvas.tokens.placeables) {
-			  clearEngagementBadge(token);
-			  }
-			  }
+    if (canvas?.ready) {
+      for (const token of canvas.tokens.placeables) {
+      clearEngagementBadge(token);
+      }
+    }
+
+    await refreshEngagementUI(combat);
+	
     } catch (e) {
       debugLog("Error unsetting engagedPairs at combat end", e);
     }
