@@ -725,17 +725,12 @@ async function handleManualEngagedRemovalByToken(tokenDoc, combat) {
 
   const tokenId = tokenDoc.id;
   const actor = tokenDoc.actor;
-  const actorId = actor?.id || null;
 
-  const partnerActorIds = new Set();
   let changed = false;
 
   for (const [key, info] of Object.entries(pairs)) {
     if (!info) continue;
     if (info.aToken !== tokenId && info.bToken !== tokenId) continue;
-
-    if (info.aToken === tokenId && info.bActor) partnerActorIds.add(info.bActor);
-    if (info.bToken === tokenId && info.aActor) partnerActorIds.add(info.aActor);
 
     delete pairs[key];
     changed = true;
@@ -743,22 +738,21 @@ async function handleManualEngagedRemovalByToken(tokenDoc, combat) {
 
   if (!changed) return;
 
+  const engagementMap = buildEngagementMap(pairs);
+
   if (actor?.hasCondition?.("engaged")) {
     await actor.removeCondition("engaged");
   }
 
-  for (const partnerActorId of partnerActorIds) {
-    const stillInPair = Object.values(pairs).some(
-      (info) => info && (info.aActor === partnerActorId || info.bActor === partnerActorId)
-    );
+  for (const c of combat.combatants) {
+    const partnerTokenId = c.token?.id ?? c.tokenId;
+    const partnerActor = c.actor;
+    if (!partnerTokenId || !partnerActor) continue;
+    if (partnerTokenId === tokenId) continue;
 
-    if (stillInPair) continue;
+    const stillEngaged = engagementMap.has(partnerTokenId) && engagementMap.get(partnerTokenId).size > 0;
 
-    const combatant = combat.combatants.find((c) => c.actor?.id === partnerActorId);
-    const partnerActor = combatant?.actor || game.actors.get(partnerActorId);
-    if (!partnerActor) continue;
-
-    if (partnerActor.hasCondition?.("engaged")) {
+    if (!stillEngaged && partnerActor.hasCondition?.("engaged")) {
       await partnerActor.removeCondition("engaged");
     }
   }
@@ -767,8 +761,7 @@ async function handleManualEngagedRemovalByToken(tokenDoc, combat) {
 
   debugLog("Manual engaged removal synced from token", {
     token: tokenDoc.name,
-    tokenId,
-    actorId
+    tokenId
   });
 }
 
@@ -778,6 +771,13 @@ async function handleManualEngagedRemovalByEffect(effect) {
 
   const combat = getCurrentCombat();
   if (!combat) return;
+
+  const tokenDoc = actor.token ?? actor.prototypeToken ?? null;
+
+  if (tokenDoc?.id) {
+    await handleManualEngagedRemovalByToken(tokenDoc, combat);
+    return;
+  }
 
   await handleManualEngagedRemoval(actor, combat);
 }
