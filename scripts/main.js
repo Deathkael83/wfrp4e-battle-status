@@ -257,7 +257,7 @@ async function normalizeEngagementState(combat, pairs) {
     const stillEngaged = activeTokenIds.has(tokenId);
 
     if (!stillEngaged && actor.hasCondition?.("engaged")) {
-      await actor.removeCondition("engaged");
+      await removeEngagedSilently(actor);
     }
   }
 
@@ -496,6 +496,19 @@ function effectMatchesCondition(effect, key, localizedKey) {
   );
 }
 
+async function removeEngagedSilently(actor) {
+  if (!actor?.hasCondition?.("engaged")) return;
+
+  const key = actor.uuid ?? actor.id;
+  _suppressEngagedEffectHook.add(key);
+
+  try {
+    await removeEngagedSilently(actor);
+  } finally {
+    setTimeout(() => _suppressEngagedEffectHook.delete(key), 0);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Apply/track engagement pair
 // ---------------------------------------------------------------------------
@@ -592,7 +605,7 @@ async function handleRoundChange(combat, changed) {
       if (!actor) continue;
       try {
         if (actor.hasCondition?.("engaged")) {
-          await actor.removeCondition("engaged");
+          await removeEngagedSilently(actor);
           needsRefresh = true;
 		  
           const tokenName = c.token?.name || c.name || actor.name;
@@ -638,7 +651,7 @@ async function handleRoundChange(combat, changed) {
         actor.hasCondition?.("engaged") &&
         !activeTokenIds.has(tokenId)
         ) {
-        await actor.removeCondition("engaged");
+        await removeEngagedSilently(actor);
 				     
 		gmChat(
           tf("wfrp4e_battle_status.Chat.EngagedRemovedNoLongerEngaged", {
@@ -672,7 +685,7 @@ async function handleActorUnconsciousCleanup(actor, combat, pairs) {
   }
 
   if (actor.hasCondition?.("engaged")) {
-    await actor.removeCondition("engaged");
+    await removeEngagedSilently(actor);
   }
 
   await normalizeEngagementState(combat, pairs);
@@ -779,6 +792,8 @@ async function handleTurnChange(combat, changed) {
 // INIT (settings only)
 // ---------------------------------------------------------------------------
 
+const _suppressEngagedEffectHook = new Set();
+
 Hooks.once("init", () => {
   registerSettings();
 });
@@ -855,6 +870,9 @@ Hooks.on("deleteActiveEffect", async (effect) => {
 
     const parent = effect?.parent;
     if (!parent?.hasCondition) return;
+	
+	const suppressKey = parent.uuid ?? parent.id;
+    if (_suppressEngagedEffectHook.has(suppressKey)) return;
 
     if (!effectMatchesCondition(effect, "engaged", "WFRP4E.ConditionName.Engaged")) return;
 
@@ -914,7 +932,7 @@ Hooks.on("preDeleteCombat", async (combat) => {
       if (!actor) continue;
 
       if (actor.hasCondition?.("engaged")) {
-        await actor.removeCondition("engaged");
+        await removeEngagedSilently(actor);
       }
     }
 
