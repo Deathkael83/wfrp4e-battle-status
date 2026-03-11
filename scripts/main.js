@@ -204,11 +204,14 @@ async function handleTokenDisengageCleanup(tokenId, combat, pairs) {
   if (!tokenId || !combat) return pairs;
 
   const updated = duplicate(pairs || {});
+  let changed = false;
 
   for (const [key, info] of Object.entries(updated)) {
     if (!info) continue;
+
     if (info.aToken === tokenId || info.bToken === tokenId) {
       delete updated[key];
+      changed = true;
     }
   }
 
@@ -217,6 +220,12 @@ async function handleTokenDisengageCleanup(tokenId, combat, pairs) {
 
   if (tokenActor?.hasCondition?.("engaged")) {
     await removeEngagedSilently(tokenActor);
+  }
+
+  // Punto chiave: persisti subito il nuovo stato dei pair
+  // così eventuali hook annidati non leggono più la flag vecchia
+  if (changed) {
+    await saveEngagementPairs(combat, updated);
   }
 
   await normalizeEngagementState(combat, updated);
@@ -462,20 +471,48 @@ function passesCombatantRequirement(attacker, defender, combat) {
   return false;
 }
 
-function resolveTokenDocFromEffectActor(actor, combat) {
+function resolveTokenDocFromEffect(effect, combat) {
+  const actor = effect?.parent;
   if (!actor || !combat) return null;
 
-  // Caso migliore: actor synthetic da token
+  // Caso migliore: synthetic actor con riferimento diretto al token
+  if (actor.isToken && actor.token) {
+    return actor.token;
+  }
+
+  // Altro caso comune: parent diretto TokenDocument
   if (actor.parent?.documentName === "Token") {
     return actor.parent;
   }
 
-  // Fallback: prova a trovare un solo combatant davvero univoco
+  // Prova a ricavare token/scene dallo uuid dell'effetto o dell'actor
+  const candidateUuids = [effect?.uuid, actor?.uuid].filter(Boolean);
+
+  for (const uuid of candidateUuids) {
+    const match = uuid.match(/Scene\.([^.]+)\.Token\.([^.]+)/);
+    if (!match) continue;
+
+    const [, sceneId, tokenId] = match;
+    const scene = game.scenes.get(sceneId);
+    const tokenDoc = scene?.tokens?.get(tokenId);
+    if (tokenDoc) return tokenDoc;
+  }
+
+  // Fallback: token attivi dell'actor nel canvas/combat
+  const activeTokens = actor.getActiveTokens?.(true) || [];
+  if (activeTokens.length === 1) {
+    return activeTokens[0]?.document || activeTokens[0];
+  }
+
+  // Ultimo fallback: match univoco nei combatants
   const matches = combat.combatants.filter((c) => {
     const tokenActor = getTokenActorFromCombatant(c);
     if (!tokenActor) return false;
 
-    return tokenActor.uuid === actor.uuid;
+    if (tokenActor.uuid && actor.uuid && tokenActor.uuid === actor.uuid) return true;
+    if (c.actor?.uuid && actor.uuid && c.actor.uuid === actor.uuid) return true;
+
+    return c.actor?.id === actor.id;
   });
 
   if (matches.length === 1) {
@@ -775,12 +812,13 @@ async function handleManualEngagedRemovalByEffect(effect) {
   const combat = getCurrentCombat();
   if (!combat) return;
 
-  const tokenDoc = resolveTokenDocFromEffectActor(actor, combat);
+  const tokenDoc = resolveTokenDocFromEffect(effect, combat);
 
   if (!tokenDoc?.id) {
     debugLog("Cannot resolve exact token for manual engaged removal; skipping cleanup", {
       actor: actor.name,
-      actorUuid: actor.uuid
+      actorUuid: actor.uuid,
+      effectUuid: effect?.uuid
     });
     return;
   }
@@ -935,12 +973,13 @@ Hooks.on("createActiveEffect", async (effect) => {
     let pairs = duplicate((await combat.getFlag(MODULE_ID, "engagedPairs")) || {});
     if (!Object.keys(pairs).length) return;
 
-    const tokenDoc = resolveTokenDocFromEffectActor(actor, combat);
+    const tokenDoc = resolveTokenDocFromEffect(effect, combat);
 
     if (!tokenDoc?.id) {
       debugLog("Cannot resolve exact token for unconscious/dead cleanup; skipping cleanup", {
         actor: actor.name,
         actorUuid: actor.uuid,
+        effectUuid: effect?.uuid,
         unconscious: isUnconscious,
         dead: isDead
       });
@@ -948,11 +987,11 @@ Hooks.on("createActiveEffect", async (effect) => {
     }
 
     pairs = await handleTokenDisengageCleanup(tokenDoc.id, combat, pairs);
-    await saveEngagementPairs(combat, pairs);
 
     debugLog("Engagement cleanup triggered by unconscious/dead", {
       actor: actor.name,
       actorUuid: actor.uuid,
+      effectUuid: effect?.uuid,
       tokenId: tokenDoc.id,
       unconscious: isUnconscious,
       dead: isDead
