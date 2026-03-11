@@ -98,15 +98,15 @@ function getTokenRefFromTest(test, actor, combat) {
   const tokenId = speaker.token || null;
 
   if (sceneId && tokenId) {
-    return {
-      sceneId,
-      tokenId
-    };
+    return { sceneId, tokenId };
   }
 
-  // Fallback: try to resolve from combat by actor, only if unique
+  // Fallback: risolvi dal combat SOLO se il token actor è univoco per uuid
   if (combat && actor) {
-    const matches = combat.combatants.filter((c) => c.actor && c.actor.id === actor.id);
+    const matches = combat.combatants.filter((c) =>
+      sameTokenActor(getTokenActorFromCombatant(c), actor)
+    );
+
     if (matches.length === 1) {
       const combatant = matches[0];
       const resolvedSceneId = combat.scene?.id || canvas.scene?.id || sceneId || null;
@@ -122,6 +122,12 @@ function getTokenRefFromTest(test, actor, combat) {
   }
 
   return null;
+}
+
+function sameTokenActor(actorA, actorB) {
+  if (!actorA || !actorB) return false;
+  if (!actorA.uuid || !actorB.uuid) return false;
+  return actorA.uuid === actorB.uuid;
 }
 
 function getActiveTokenIdsFromPairs(pairs, round) {
@@ -169,8 +175,8 @@ function getCombatTokenIdsForActor(actor, combat) {
   if (!actor || !combat) return [];
 
   return combat.combatants
-    .filter(c => c.actor?.id === actor.id)
-    .map(c => c.token?.id ?? c.tokenId)
+    .filter((c) => sameTokenActor(getTokenActorFromCombatant(c), actor))
+    .map((c) => c.token?.id ?? c.tokenId)
     .filter(Boolean);
 }
 
@@ -180,7 +186,7 @@ function getCombatantByTokenId(combat, tokenId) {
 }
 
 function getTokenActorFromCombatant(combatant) {
-  return combatant?.token?.actor || combatant?.actor || null;
+  return combatant?.token?.actor || null;
 }
 
 function getTokenDocFromCombatant(combatant) {
@@ -475,14 +481,17 @@ function resolveTokenDocFromEffect(effect, combat) {
   const actor = effect?.parent;
   if (!actor || !combat) return null;
 
+  // Caso corretto: synthetic actor legato a token
   if (actor.isToken && actor.token) {
     return actor.token;
   }
 
+  // Caso corretto: parent diretto TokenDocument
   if (actor.parent?.documentName === "Token") {
     return actor.parent;
   }
 
+  // Caso corretto: uuid con Scene.Token
   const candidateUuids = [effect?.uuid, actor?.uuid].filter(Boolean);
 
   for (const uuid of candidateUuids) {
@@ -495,25 +504,8 @@ function resolveTokenDocFromEffect(effect, combat) {
     if (tokenDoc) return tokenDoc;
   }
 
-  const activeTokens = actor.getActiveTokens?.(true) || [];
-  if (activeTokens.length === 1) {
-    return activeTokens[0]?.document || activeTokens[0];
-  }
-
-  const matches = combat.combatants.filter((c) => {
-    const tokenActor = getTokenActorFromCombatant(c);
-    if (!tokenActor) return false;
-
-    if (tokenActor.uuid && actor.uuid && tokenActor.uuid === actor.uuid) return true;
-    if (c.actor?.uuid && actor.uuid && c.actor.uuid === actor.uuid) return true;
-
-    return c.actor?.id === actor.id;
-  });
-
-  if (matches.length === 1) {
-    return getTokenDocFromCombatant(matches[0]);
-  }
-
+  // Nessun fallback actor-based: meglio non fare cleanup
+  // piuttosto che farlo sul token sbagliato.
   return null;
 }
 
@@ -769,26 +761,6 @@ async function handleActorUnconsciousCleanup(combatant, combat, pairs) {
   if (!tokenId) return pairs;
 
   return await handleTokenDisengageCleanup(tokenId, combat, pairs);
-}
-
-async function handleManualEngagedRemoval(actor, combat) {
-  if (!actor || !combat) return;
-
-  let pairs = duplicate((await combat.getFlag(MODULE_ID, "engagedPairs")) || {});
-  if (!Object.keys(pairs).length) return;
-
-  const actorTokenIds = new Set(getCombatTokenIdsForActor(actor, combat));
-  if (!actorTokenIds.size) return;
-
-  for (const [key, info] of Object.entries(pairs)) {
-    if (!info) continue;
-
-    if (actorTokenIds.has(info.aToken) || actorTokenIds.has(info.bToken)) {
-      delete pairs[key];
-    }
-  }
-
-  await normalizeEngagementState(combat, pairs);
 }
 
 async function handleManualEngagedRemovalByToken(tokenDoc, combat) {
