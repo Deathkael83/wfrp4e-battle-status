@@ -503,7 +503,7 @@ async function removeEngagedSilently(actor) {
   _suppressEngagedEffectHook.add(key);
 
   try {
-    await removeEngagedSilently(actor);
+    await actor.removeCondition("engaged");
   } finally {
     setTimeout(() => _suppressEngagedEffectHook.delete(key), 0);
   }
