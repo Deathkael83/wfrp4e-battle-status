@@ -900,13 +900,13 @@ Hooks.on("createActiveEffect", async (effect) => {
 });
 
   // 3) Combat end: remove engaged from all combatants
-Hooks.on("deleteCombat", async (combat) => {
+Hooks.on("preDeleteCombat", async (combat) => {
   if (!game.settings.get(MODULE_ID, "enableAutoEngaged")) return;
 
   const me = game.users.current;
   if (!me || ![3, 4].includes(me.role)) return;
 
-  debugLog("Combat ended, cleaning engagement state");
+  debugLog("Combat ending, cleaning engagement state");
 
   try {
     for (const c of combat.combatants) {
@@ -921,7 +921,7 @@ Hooks.on("deleteCombat", async (combat) => {
     await saveEngagementPairs(combat, {});
     clearAllEngagementUI();
   } catch (err) {
-    debugLog("Error during combat end cleanup", err);
+    debugLog("Error during preDeleteCombat cleanup", err);
   }
 });
   
