@@ -228,12 +228,17 @@ async function normalizeEngagementState(combat, pairs) {
 
   const normalized = {};
   const activeTokenIds = new Set();
+  const activeActorIds = new Set();
 
   for (const [key, info] of Object.entries(pairs || {})) {
     if (!info) continue;
 
-    const aCombatant = combat.combatants.find(c => (c.token?.id ?? c.tokenId) === info.aToken);
-    const bCombatant = combat.combatants.find(c => (c.token?.id ?? c.tokenId) === info.bToken);
+    const aCombatant = combat.combatants.find(
+      (c) => (c.token?.id ?? c.tokenId) === info.aToken
+    );
+    const bCombatant = combat.combatants.find(
+      (c) => (c.token?.id ?? c.tokenId) === info.bToken
+    );
 
     const aActor = aCombatant?.actor || game.actors.get(info.aActor);
     const bActor = bCombatant?.actor || game.actors.get(info.bActor);
@@ -241,22 +246,29 @@ async function normalizeEngagementState(combat, pairs) {
     if (!aActor || !bActor) continue;
     if (actorIsUnconscious(aActor) || actorIsUnconscious(bActor)) continue;
     if (aActor.hasCondition?.("dead") || bActor.hasCondition?.("dead")) continue;
-    if (!aActor.hasCondition?.("engaged")) continue;
-    if (!bActor.hasCondition?.("engaged")) continue;
 
     normalized[key] = info;
     activeTokenIds.add(info.aToken);
     activeTokenIds.add(info.bToken);
+    activeActorIds.add(aActor.id);
+    activeActorIds.add(bActor.id);
   }
+
+  // Reconcile conditions from pairs, not the other way around
+  const processedActors = new Set();
 
   for (const c of combat.combatants) {
     const actor = c.actor;
-    const tokenId = c.token?.id ?? c.tokenId;
-    if (!actor || !tokenId) continue;
+    if (!actor) continue;
+    if (processedActors.has(actor.id)) continue;
+    processedActors.add(actor.id);
 
-    const stillEngaged = activeTokenIds.has(tokenId);
+    const shouldBeEngaged = activeActorIds.has(actor.id);
+    const hasEngaged = actor.hasCondition?.("engaged") ?? false;
 
-    if (!stillEngaged && actor.hasCondition?.("engaged")) {
+    if (shouldBeEngaged && !hasEngaged) {
+      await actor.addCondition("engaged");
+    } else if (!shouldBeEngaged && hasEngaged) {
       await removeEngagedSilently(actor);
     }
   }
