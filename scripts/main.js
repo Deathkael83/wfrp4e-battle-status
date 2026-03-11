@@ -462,6 +462,29 @@ function passesCombatantRequirement(attacker, defender, combat) {
   return false;
 }
 
+function resolveTokenDocFromEffectActor(actor, combat) {
+  if (!actor || !combat) return null;
+
+  // Caso migliore: actor synthetic da token
+  if (actor.parent?.documentName === "Token") {
+    return actor.parent;
+  }
+
+  // Fallback: prova a trovare un solo combatant davvero univoco
+  const matches = combat.combatants.filter((c) => {
+    const tokenActor = getTokenActorFromCombatant(c);
+    if (!tokenActor) return false;
+
+    return tokenActor.uuid === actor.uuid;
+  });
+
+  if (matches.length === 1) {
+    return getTokenDocFromCombatant(matches[0]);
+  }
+
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Detect melee opposed tests
 // ---------------------------------------------------------------------------
@@ -752,20 +775,10 @@ async function handleManualEngagedRemovalByEffect(effect) {
   const combat = getCurrentCombat();
   if (!combat) return;
 
-  let tokenDoc = null;
-
-  if (actor.parent?.documentName === "Token") {
-    tokenDoc = actor.parent;
-  } else {
-    const matches = getCombatantsForActor(actor, combat);
-
-    if (matches.length === 1) {
-      tokenDoc = getTokenDocFromCombatant(matches[0]);
-    }
-  }
+  const tokenDoc = resolveTokenDocFromEffectActor(actor, combat);
 
   if (!tokenDoc?.id) {
-    debugLog("Cannot resolve a unique token for manual engaged removal; skipping cleanup", {
+    debugLog("Cannot resolve exact token for manual engaged removal; skipping cleanup", {
       actor: actor.name,
       actorUuid: actor.uuid
     });
@@ -787,11 +800,15 @@ async function handleTurnChange(combat, changed) {
   let pairs = duplicate((await combat.getFlag(MODULE_ID, "engagedPairs")) || {});
   if (!Object.keys(pairs).length) return;
 
-  const unconsciousCombatants = combat.combatants.filter((c) => c.actor && actorIsUnconscious(c.actor));
+  const unconsciousCombatants = combat.combatants.filter((c) => {
+    const tokenActor = getTokenActorFromCombatant(c);
+    return tokenActor && actorIsUnconscious(tokenActor);
+  });
+
   if (!unconsciousCombatants.length) return;
 
   debugLog("Unconscious cleanup on turn change", {
-    unconscious: unconsciousCombatants.map((c) => c.token?.name || c.name || c.actor.name)
+    unconscious: unconsciousCombatants.map((c) => c.token?.name || c.name || getTokenActorFromCombatant(c)?.name)
   });
 
   for (const c of unconsciousCombatants) {
@@ -918,21 +935,27 @@ Hooks.on("createActiveEffect", async (effect) => {
     let pairs = duplicate((await combat.getFlag(MODULE_ID, "engagedPairs")) || {});
     if (!Object.keys(pairs).length) return;
 
-    const matches = getCombatantsForActor(actor, combat);
-    if (!matches.length) return;
+    const tokenDoc = resolveTokenDocFromEffectActor(actor, combat);
 
-    for (const combatant of matches) {
-      pairs = await handleActorUnconsciousCleanup(combatant, combat, pairs);
+    if (!tokenDoc?.id) {
+      debugLog("Cannot resolve exact token for unconscious/dead cleanup; skipping cleanup", {
+        actor: actor.name,
+        actorUuid: actor.uuid,
+        unconscious: isUnconscious,
+        dead: isDead
+      });
+      return;
     }
 
+    pairs = await handleTokenDisengageCleanup(tokenDoc.id, combat, pairs);
     await saveEngagementPairs(combat, pairs);
 
     debugLog("Engagement cleanup triggered by unconscious/dead", {
       actor: actor.name,
       actorUuid: actor.uuid,
+      tokenId: tokenDoc.id,
       unconscious: isUnconscious,
-      dead: isDead,
-      tokens: matches.map((c) => c.token?.id ?? c.tokenId)
+      dead: isDead
     });
   } catch (err) {
     debugLog("Error handling createActiveEffect for unconscious/dead", err);
