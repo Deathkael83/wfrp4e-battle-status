@@ -475,17 +475,14 @@ function resolveTokenDocFromEffect(effect, combat) {
   const actor = effect?.parent;
   if (!actor || !combat) return null;
 
-  // Caso migliore: synthetic actor con riferimento diretto al token
   if (actor.isToken && actor.token) {
     return actor.token;
   }
 
-  // Altro caso comune: parent diretto TokenDocument
   if (actor.parent?.documentName === "Token") {
     return actor.parent;
   }
 
-  // Prova a ricavare token/scene dallo uuid dell'effetto o dell'actor
   const candidateUuids = [effect?.uuid, actor?.uuid].filter(Boolean);
 
   for (const uuid of candidateUuids) {
@@ -498,13 +495,11 @@ function resolveTokenDocFromEffect(effect, combat) {
     if (tokenDoc) return tokenDoc;
   }
 
-  // Fallback: token attivi dell'actor nel canvas/combat
   const activeTokens = actor.getActiveTokens?.(true) || [];
   if (activeTokens.length === 1) {
     return activeTokens[0]?.document || activeTokens[0];
   }
 
-  // Ultimo fallback: match univoco nei combatants
   const matches = combat.combatants.filter((c) => {
     const tokenActor = getTokenActorFromCombatant(c);
     if (!tokenActor) return false;
