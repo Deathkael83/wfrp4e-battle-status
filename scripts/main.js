@@ -228,7 +228,6 @@ async function normalizeEngagementState(combat, pairs) {
 
   const normalized = {};
   const activeTokenIds = new Set();
-  const activeActorIds = new Set();
 
   for (const [key, info] of Object.entries(pairs || {})) {
     if (!info) continue;
@@ -240,36 +239,32 @@ async function normalizeEngagementState(combat, pairs) {
       (c) => (c.token?.id ?? c.tokenId) === info.bToken
     );
 
-    const aActor = aCombatant?.actor || game.actors.get(info.aActor);
-    const bActor = bCombatant?.actor || game.actors.get(info.bActor);
+    const aTokenActor = aCombatant?.token?.actor || aCombatant?.actor || null;
+    const bTokenActor = bCombatant?.token?.actor || bCombatant?.actor || null;
 
-    if (!aActor || !bActor) continue;
-    if (actorIsUnconscious(aActor) || actorIsUnconscious(bActor)) continue;
-    if (aActor.hasCondition?.("dead") || bActor.hasCondition?.("dead")) continue;
+    if (!aCombatant || !bCombatant) continue;
+    if (!aTokenActor || !bTokenActor) continue;
+    if (actorIsUnconscious(aTokenActor) || actorIsUnconscious(bTokenActor)) continue;
+    if (aTokenActor.hasCondition?.("dead") || bTokenActor.hasCondition?.("dead")) continue;
 
     normalized[key] = info;
     activeTokenIds.add(info.aToken);
     activeTokenIds.add(info.bToken);
-    activeActorIds.add(aActor.id);
-    activeActorIds.add(bActor.id);
   }
 
-  // Reconcile conditions from pairs, not the other way around
-  const processedActors = new Set();
-
   for (const c of combat.combatants) {
-    const actor = c.actor;
-    if (!actor) continue;
-    if (processedActors.has(actor.id)) continue;
-    processedActors.add(actor.id);
+    const tokenId = c.token?.id ?? c.tokenId;
+    const tokenActor = c.token?.actor || c.actor;
 
-    const shouldBeEngaged = activeActorIds.has(actor.id);
-    const hasEngaged = actor.hasCondition?.("engaged") ?? false;
+    if (!tokenId || !tokenActor) continue;
+
+    const shouldBeEngaged = activeTokenIds.has(tokenId);
+    const hasEngaged = tokenActor.hasCondition?.("engaged") ?? false;
 
     if (shouldBeEngaged && !hasEngaged) {
-      await actor.addCondition("engaged");
+      await tokenActor.addCondition("engaged");
     } else if (!shouldBeEngaged && hasEngaged) {
-      await removeEngagedSilently(actor);
+      await removeEngagedSilently(tokenActor);
     }
   }
 
@@ -685,19 +680,22 @@ async function handleRoundChange(combat, changed) {
 // - remove engaged from actor
 // - remove engaged from partners if they are no longer paired with anyone
 // ---------------------------------------------------------------------------
-async function handleActorUnconsciousCleanup(actor, combat, pairs) {
-  const actorId = actor.id;
+async function handleActorUnconsciousCleanup(combatant, combat, pairs) {
+  const tokenId = combatant.token?.id ?? combatant.tokenId;
+  const tokenActor = combatant.token?.actor || combatant.actor;
+
+  if (!tokenId || !tokenActor) return pairs;
 
   for (const [key, info] of Object.entries(pairs)) {
     if (!info) continue;
 
-    if (info.aActor === actorId || info.bActor === actorId) {
+    if (info.aToken === tokenId || info.bToken === tokenId) {
       delete pairs[key];
     }
   }
 
-  if (actor.hasCondition?.("engaged")) {
-    await removeEngagedSilently(actor);
+  if (tokenActor.hasCondition?.("engaged")) {
+    await removeEngagedSilently(tokenActor);
   }
 
   await normalizeEngagementState(combat, pairs);
@@ -752,11 +750,11 @@ async function handleManualEngagedRemovalByEffect(effect) {
 
   let tokenDoc = null;
 
-  // Synthetic actor from token HUD: parent is the TokenDocument
   if (actor.parent?.documentName === "Token") {
     tokenDoc = actor.parent;
   } else {
     const tokenIds = getCombatTokenIdsForActor(actor, combat);
+
     if (tokenIds.length === 1) {
       const tokenId = tokenIds[0];
       tokenDoc =
@@ -766,12 +764,14 @@ async function handleManualEngagedRemovalByEffect(effect) {
     }
   }
 
-  if (tokenDoc?.id) {
-    await handleManualEngagedRemovalByToken(tokenDoc, combat);
+  if (!tokenDoc?.id) {
+    debugLog("Cannot resolve a unique token for manual engaged removal; skipping actor-wide cleanup", {
+      actor: actor.name
+    });
     return;
   }
 
-  await handleManualEngagedRemoval(actor, combat);
+  await handleManualEngagedRemovalByToken(tokenDoc, combat);
 }
 
 // ---------------------------------------------------------------------------
@@ -794,7 +794,7 @@ async function handleTurnChange(combat, changed) {
   });
 
   for (const c of unconsciousCombatants) {
-    pairs = await handleActorUnconsciousCleanup(c.actor, combat, pairs);
+    pairs = await handleActorUnconsciousCleanup(c, combat, pairs);
   }
 
   await saveEngagementPairs(combat, pairs);
