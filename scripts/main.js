@@ -481,7 +481,7 @@ function resolveTokenDocFromEffect(effect, combat) {
   const actor = effect?.parent;
   if (!actor || !combat) return null;
 
-  // Caso corretto: synthetic actor legato a token
+  // Caso corretto: synthetic actor legato al token
   if (actor.isToken && actor.token) {
     return actor.token;
   }
@@ -490,6 +490,46 @@ function resolveTokenDocFromEffect(effect, combat) {
   if (actor.parent?.documentName === "Token") {
     return actor.parent;
   }
+
+  // Caso corretto: uuid con Scene.Token
+  const candidateUuids = [effect?.uuid, actor?.uuid].filter(Boolean);
+
+  for (const uuid of candidateUuids) {
+    const match = uuid.match(/Scene\.([^.]+)\.Token\.([^.]+)/);
+    if (!match) continue;
+
+    const [, sceneId, tokenId] = match;
+    const scene = game.scenes.get(sceneId);
+    const tokenDoc = scene?.tokens?.get(tokenId);
+    if (tokenDoc) return tokenDoc;
+  }
+
+  // Fallback 1: token actor uuid univoco tra i combatants
+  const byTokenActorUuid = combat.combatants.filter((c) => {
+    const tokenActor = getTokenActorFromCombatant(c);
+    return tokenActor?.uuid && actor?.uuid && tokenActor.uuid === actor.uuid;
+  });
+
+  if (byTokenActorUuid.length === 1) {
+    return getTokenDocFromCombatant(byTokenActorUuid[0]);
+  }
+
+  // Fallback 2: actor base id univoco tra i combatants
+  // serve ai token linkati, dove l'effetto può arrivare dall'actor base
+  const byActorId = combat.combatants.filter((c) => c.actor?.id && actor?.id && c.actor.id === actor.id);
+
+  if (byActorId.length === 1) {
+    return getTokenDocFromCombatant(byActorId[0]);
+  }
+
+  // Fallback 3: active token univoco
+  const activeTokens = actor.getActiveTokens?.(true) || [];
+  if (activeTokens.length === 1) {
+    return activeTokens[0]?.document || activeTokens[0];
+  }
+
+  return null;
+}
 
   // Caso corretto: uuid con Scene.Token
   const candidateUuids = [effect?.uuid, actor?.uuid].filter(Boolean);
@@ -828,6 +868,17 @@ async function handleTurnChange(combat, changed) {
 // ---------------------------------------------------------------------------
 
 const _suppressEngagedEffectHook = new Set();
+let _engagementUpdateQueue = Promise.resolve();
+
+function queueEngagementUpdate(fn) {
+  _engagementUpdateQueue = _engagementUpdateQueue
+    .then(() => fn())
+    .catch((err) => {
+      debugLog("Queued engagement update error", err);
+    });
+
+  return _engagementUpdateQueue;
+}
 
 Hooks.once("init", () => {
   registerSettings();
@@ -843,13 +894,11 @@ Hooks.once("ready", () => {
   debugLog("Initialized.");
 
   // 1) Opposed tests: apply engagement on melee
-  Hooks.on("wfrp4e:opposedTestResult", async (opposedTest) => {
+Hooks.on("wfrp4e:opposedTestResult", async (opposedTest) => {
+  return queueEngagementUpdate(async () => {
     try {
-
-      // 1) MASTER TOGGLE
       if (!game.settings.get(MODULE_ID, "enableAutoEngaged")) return;
 
-      // 2) REQUIRE ACTIVE COMBAT
       const combat = getCurrentCombat();
 
       if (game.settings.get(MODULE_ID, "requireActiveCombat")) {
@@ -872,25 +921,21 @@ Hooks.once("ready", () => {
       const defenderActor = defenderTest.actor;
       if (!attackerActor || !defenderActor) return;
 
-      // 3) COMBATANT REQUIREMENT
-      // Later: eligibility may still allow non-combatants
       if (!passesCombatantRequirement(attackerActor, defenderActor, combat)) return;
 
-      // Apply Engaged
       await markEngagedPairTokens(attackerTest, defenderTest);
-
     } catch (err) {
       debugLog("Error in opposedTestResult", err);
     }
   });
+});
 
   // 2) updateCombat: round change + turn change
-  Hooks.on("updateCombat", async (combat, changed) => {
+Hooks.on("updateCombat", async (combat, changed) => {
+  return queueEngagementUpdate(async () => {
     try {
-      
-      // MASTER TOGGLE
       if (!game.settings.get(MODULE_ID, "enableAutoEngaged")) return;
-      
+
       if (combat.id !== getCurrentCombat()?.id) return;
       await handleRoundChange(combat, changed);
       await handleTurnChange(combat, changed);
@@ -898,74 +943,80 @@ Hooks.once("ready", () => {
       debugLog("Error in updateCombat", err);
     }
   });
+});
 
 Hooks.on("deleteActiveEffect", async (effect) => {
-  try {
-    if (!game.settings.get(MODULE_ID, "enableAutoEngaged")) return;
+  return queueEngagementUpdate(async () => {
+    try {
+      if (!game.settings.get(MODULE_ID, "enableAutoEngaged")) return;
 
-    const parent = effect?.parent;
-    if (!parent?.hasCondition) return;
+      const parent = effect?.parent;
+      if (!parent?.hasCondition) return;
 
-    const suppressKey = parent.uuid ?? parent.id;
-    if (_suppressEngagedEffectHook.has(suppressKey)) return;
+      const suppressKey = parent.uuid ?? parent.id;
+      if (_suppressEngagedEffectHook.has(suppressKey)) return;
 
-    if (!effectMatchesCondition(effect, "engaged", "WFRP4E.ConditionName.Engaged")) return;
+      if (!effectMatchesCondition(effect, "engaged", "WFRP4E.ConditionName.Engaged")) return;
 
-    await handleManualEngagedRemovalByEffect(effect);
+      await handleManualEngagedRemovalByEffect(effect);
 
-    debugLog("Engaged removed manually via ActiveEffect", {
-      actor: parent.name,
-      actorUuid: parent.uuid
-    });
-  } catch (err) {
-    debugLog("Error handling deleteActiveEffect for Engaged", err);
-  }
+      debugLog("Engaged removed manually via ActiveEffect", {
+        actor: parent.name,
+        actorUuid: parent.uuid,
+        effectUuid: effect?.uuid
+      });
+    } catch (err) {
+      debugLog("Error handling deleteActiveEffect for Engaged", err);
+    }
+  });
 });
 
 Hooks.on("createActiveEffect", async (effect) => {
-  try {
-    if (!game.settings.get(MODULE_ID, "enableAutoEngaged")) return;
+  return queueEngagementUpdate(async () => {
+    try {
+      if (!game.settings.get(MODULE_ID, "enableAutoEngaged")) return;
 
-    const actor = effect?.parent;
-    if (!actor?.hasCondition) return;
+      const actor = effect?.parent;
+      if (!actor?.hasCondition) return;
 
-    const isUnconscious = effectMatchesCondition(effect, "unconscious", "WFRP4E.ConditionName.Unconscious");
-    const isDead = effectMatchesCondition(effect, "dead", "WFRP4E.ConditionName.Dead");
+      const isUnconscious = effectMatchesCondition(effect, "unconscious", "WFRP4E.ConditionName.Unconscious");
+      const isDead = effectMatchesCondition(effect, "dead", "WFRP4E.ConditionName.Dead");
 
-    if (!isUnconscious && !isDead) return;
+      if (!isUnconscious && !isDead) return;
 
-    const combat = getCurrentCombat();
-    if (!combat) return;
+      const combat = getCurrentCombat();
+      if (!combat) return;
 
-    let pairs = duplicate((await combat.getFlag(MODULE_ID, "engagedPairs")) || {});
-    if (!Object.keys(pairs).length) return;
+      let pairs = duplicate((await combat.getFlag(MODULE_ID, "engagedPairs")) || {});
+      if (!Object.keys(pairs).length) return;
 
-    const tokenDoc = resolveTokenDocFromEffect(effect, combat);
+      const tokenDoc = resolveTokenDocFromEffect(effect, combat);
 
-    if (!tokenDoc?.id) {
-      debugLog("Cannot resolve exact token for unconscious/dead cleanup; skipping cleanup", {
+      if (!tokenDoc?.id) {
+        debugLog("Cannot resolve exact token for unconscious/dead cleanup; skipping cleanup", {
+          actor: actor.name,
+          actorUuid: actor.uuid,
+          effectUuid: effect?.uuid,
+          unconscious: isUnconscious,
+          dead: isDead
+        });
+        return;
+      }
+
+      pairs = await handleTokenDisengageCleanup(tokenDoc.id, combat, pairs);
+
+      debugLog("Engagement cleanup triggered by unconscious/dead", {
         actor: actor.name,
         actorUuid: actor.uuid,
         effectUuid: effect?.uuid,
+        tokenId: tokenDoc.id,
         unconscious: isUnconscious,
         dead: isDead
       });
-      return;
+    } catch (err) {
+      debugLog("Error handling createActiveEffect for unconscious/dead", err);
     }
-
-    pairs = await handleTokenDisengageCleanup(tokenDoc.id, combat, pairs);
-
-    debugLog("Engagement cleanup triggered by unconscious/dead", {
-      actor: actor.name,
-      actorUuid: actor.uuid,
-      effectUuid: effect?.uuid,
-      tokenId: tokenDoc.id,
-      unconscious: isUnconscious,
-      dead: isDead
-    });
-  } catch (err) {
-    debugLog("Error handling createActiveEffect for unconscious/dead", err);
-  }
+  });
 });
 
   // 3) Combat end: remove engaged from all combatants
