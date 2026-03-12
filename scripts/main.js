@@ -843,7 +843,7 @@ Hooks.once("ready", () => {
     });
   });
 
-Hooks.on("deleteActiveEffect", async (effect) => {
+Hooks.on("deleteActiveEffect", async (effect, options, userId) => {
   return queueEngagementUpdate(async () => {
     try {
       if (!game.settings.get(MODULE_ID, "enableAutoEngaged")) return;
@@ -856,6 +856,18 @@ Hooks.on("deleteActiveEffect", async (effect) => {
 
       if (!effectMatchesCondition(effect, "engaged", "WFRP4E.ConditionName.Engaged")) return;
 
+      // Reagisci solo a rimozioni manuali/probabilmente manuali.
+      // Se manual === false, assume rimozione script/automazione e ignora.
+      if (options?.manual === false) {
+        debugLog("Ignoring scripted/automatic engaged deletion", {
+          actor: actor.name,
+          actorUuid: actor.uuid,
+          effectUuid: effect?.uuid,
+          options
+        });
+        return;
+      }
+
       const combat = getCurrentCombat();
       if (!combat) return;
 
@@ -864,18 +876,21 @@ Hooks.on("deleteActiveEffect", async (effect) => {
         debugLog("Cannot resolve exact token for engaged delete cleanup; skipping cleanup", {
           actor: actor.name,
           actorUuid: actor.uuid,
-          effectUuid: effect?.uuid
+          effectUuid: effect?.uuid,
+          options
         });
         return;
       }
 
       await removePairsForTokenId(combat, tokenDoc.id);
 
-      debugLog("Engagement cleanup triggered by engaged delete", {
+      debugLog("Engagement cleanup triggered by manual engaged delete", {
         actor: actor.name,
         actorUuid: actor.uuid,
         effectUuid: effect?.uuid,
-        tokenId: tokenDoc.id
+        tokenId: tokenDoc.id,
+        options,
+        userId
       });
     } catch (err) {
       debugLog("Error handling deleteActiveEffect for Engaged", err);
