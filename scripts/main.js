@@ -411,7 +411,13 @@ async function removeEngagedSilently(actor) {
   _suppressEngagedEffectHook.add(key);
 
   try {
-    await actor.removeCondition("engaged");
+    const effects = Array.from(actor.effects || []).filter((effect) =>
+      effectMatchesCondition(effect, "engaged", "WFRP4E.ConditionName.Engaged")
+    );
+
+    for (const effect of effects) {
+      await effect.delete({ manual: false, isAuto: true });
+    }
   } finally {
     setTimeout(() => _suppressEngagedEffectHook.delete(key), 0);
   }
@@ -856,14 +862,14 @@ Hooks.on("deleteActiveEffect", async (effect, options, userId) => {
 
       if (!effectMatchesCondition(effect, "engaged", "WFRP4E.ConditionName.Engaged")) return;
 
-      // Reagisci solo a rimozioni manuali/probabilmente manuali.
-      // Se manual === false, assume rimozione script/automazione e ignora.
-      if (options?.manual === false) {
+      // Ignora rimozioni automatiche/scriptate del modulo o di altre automazioni
+      if (options?.manual === false || options?.isAuto === true) {
         debugLog("Ignoring scripted/automatic engaged deletion", {
           actor: actor.name,
           actorUuid: actor.uuid,
           effectUuid: effect?.uuid,
-          options
+          options,
+          userId
         });
         return;
       }
