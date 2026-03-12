@@ -413,7 +413,8 @@ async function removeEngagedSilently(actor) {
   try {
     await actor.removeCondition("engaged");
   } finally {
-    setTimeout(() => _suppressEngagedEffectHook.delete(key), 0);
+    // Lascia il suppress attivo un pelo più a lungo per coprire l'intero ciclo hook
+    setTimeout(() => _suppressEngagedEffectHook.delete(key), 50);
   }
 }
 
@@ -843,31 +844,31 @@ Hooks.once("ready", () => {
     });
   });
 
-  Hooks.on("deleteActiveEffect", async (effect) => {
-    return queueEngagementUpdate(async () => {
-      try {
-        if (!game.settings.get(MODULE_ID, "enableAutoEngaged")) return;
+Hooks.on("preDeleteActiveEffect", async (effect) => {
+  return queueEngagementUpdate(async () => {
+    try {
+      if (!game.settings.get(MODULE_ID, "enableAutoEngaged")) return;
 
-        const parent = effect?.parent;
-        if (!parent?.hasCondition) return;
+      const parent = effect?.parent;
+      if (!parent) return;
 
-        const suppressKey = parent.uuid ?? parent.id;
-        if (_suppressEngagedEffectHook.has(suppressKey)) return;
+      const suppressKey = parent.uuid ?? parent.id;
+      if (_suppressEngagedEffectHook.has(suppressKey)) return;
 
-        if (!effectMatchesCondition(effect, "engaged", "WFRP4E.ConditionName.Engaged")) return;
+      if (!effectMatchesCondition(effect, "engaged", "WFRP4E.ConditionName.Engaged")) return;
 
-        await handleManualEngagedRemovalByEffect(effect);
+      await handleManualEngagedRemovalByEffect(effect);
 
-        debugLog("Engaged removed manually via ActiveEffect", {
-          actor: parent.name,
-          actorUuid: parent.uuid,
-          effectUuid: effect?.uuid
-        });
-      } catch (err) {
-        debugLog("Error handling deleteActiveEffect for Engaged", err);
-      }
-    });
+      debugLog("Engaged removed manually via preDeleteActiveEffect", {
+        actor: parent.name,
+        actorUuid: parent.uuid,
+        effectUuid: effect?.uuid
+      });
+    } catch (err) {
+      debugLog("Error handling preDeleteActiveEffect for Engaged", err);
+    }
   });
+});
 
   Hooks.on("createActiveEffect", async (effect) => {
     return queueEngagementUpdate(async () => {
