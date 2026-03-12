@@ -937,6 +937,7 @@ Hooks.on("updateCombat", async (combat, changed) => {
       if (!game.settings.get(MODULE_ID, "enableAutoEngaged")) return;
 
       if (combat.id !== getCurrentCombat()?.id) return;
+
       await handleRoundChange(combat, changed);
       await handleTurnChange(combat, changed);
     } catch (err) {
@@ -1003,7 +1004,7 @@ Hooks.on("createActiveEffect", async (effect) => {
         return;
       }
 
-      pairs = await handleTokenDisengageCleanup(tokenDoc.id, combat, pairs);
+      await handleTokenDisengageCleanup(tokenDoc.id, combat, pairs);
 
       debugLog("Engagement cleanup triggered by unconscious/dead", {
         actor: actor.name,
