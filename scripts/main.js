@@ -413,8 +413,7 @@ async function removeEngagedSilently(actor) {
   try {
     await actor.removeCondition("engaged");
   } finally {
-    // Lascia il suppress attivo un pelo più a lungo per coprire l'intero ciclo hook
-    setTimeout(() => _suppressEngagedEffectHook.delete(key), 50);
+    setTimeout(() => _suppressEngagedEffectHook.delete(key), 0);
   }
 }
 
@@ -844,28 +843,42 @@ Hooks.once("ready", () => {
     });
   });
 
-Hooks.on("preDeleteActiveEffect", async (effect) => {
+Hooks.on("deleteActiveEffect", async (effect) => {
   return queueEngagementUpdate(async () => {
     try {
       if (!game.settings.get(MODULE_ID, "enableAutoEngaged")) return;
 
-      const parent = effect?.parent;
-      if (!parent) return;
+      const actor = effect?.parent;
+      if (!actor?.hasCondition) return;
 
-      const suppressKey = parent.uuid ?? parent.id;
+      const suppressKey = actor.uuid ?? actor.id;
       if (_suppressEngagedEffectHook.has(suppressKey)) return;
 
       if (!effectMatchesCondition(effect, "engaged", "WFRP4E.ConditionName.Engaged")) return;
 
-      await handleManualEngagedRemovalByEffect(effect);
+      const combat = getCurrentCombat();
+      if (!combat) return;
 
-      debugLog("Engaged removed manually via preDeleteActiveEffect", {
-        actor: parent.name,
-        actorUuid: parent.uuid,
-        effectUuid: effect?.uuid
+      const tokenDoc = resolveTokenDocFromEffect(effect, combat);
+      if (!tokenDoc?.id) {
+        debugLog("Cannot resolve exact token for engaged delete cleanup; skipping cleanup", {
+          actor: actor.name,
+          actorUuid: actor.uuid,
+          effectUuid: effect?.uuid
+        });
+        return;
+      }
+
+      await removePairsForTokenId(combat, tokenDoc.id);
+
+      debugLog("Engagement cleanup triggered by engaged delete", {
+        actor: actor.name,
+        actorUuid: actor.uuid,
+        effectUuid: effect?.uuid,
+        tokenId: tokenDoc.id
       });
     } catch (err) {
-      debugLog("Error handling preDeleteActiveEffect for Engaged", err);
+      debugLog("Error handling deleteActiveEffect for Engaged", err);
     }
   });
 });
