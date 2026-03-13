@@ -9,7 +9,7 @@ import { MODULE_ID, registerSettings } from "./settings.js";
  *
  * Core rule:
  * - pair identity is TOKEN-BASED, never actor-based
- * - manual engaged removal must resolve the exact token
+ * - manual engaged removal resolves the exact token
  * - engagedPairs flag is the single source of truth
  */
 
@@ -97,7 +97,10 @@ function gmChat(htmlMsg) {
 // ---------------------------------------------------------------------------
 const _suppressEngagedEffectDeletes = new Set();
 const _manualDisengageTokenSuppress = new Set();
+const _pendingManualDisengageTokenKeys = new Set();
+
 let _engagementUpdateQueue = Promise.resolve();
+let _manualDisengageFlushTimer = null;
 
 function queueEngagementUpdate(fn) {
   _engagementUpdateQueue = _engagementUpdateQueue
@@ -974,6 +977,102 @@ async function removePairsForTokenKey(combat, tokenKey) {
   }
 }
 
+async function flushPendingManualDisengages(combat) {
+  if (!combat) return;
+
+  const tokenKeys = Array.from(_pendingManualDisengageTokenKeys);
+  _pendingManualDisengageTokenKeys.clear();
+
+  if (!tokenKeys.length) {
+    debugLog("flushPendingManualDisengages:nothing-to-do");
+    return;
+  }
+
+  const pairs = await loadEngagementPairs(combat);
+
+  debugLog("flushPendingManualDisengages:start", {
+    tokenKeys,
+    loadedPairs: summarizePairs(pairs)
+  });
+
+  const affectedTokenKeys = new Set(tokenKeys);
+  let deletedAny = false;
+
+  for (const [key, info] of Object.entries(pairs)) {
+    if (!info) continue;
+
+    const matches = tokenKeys.includes(info.aKey) || tokenKeys.includes(info.bKey);
+    if (!matches) continue;
+
+    if (info.aKey) affectedTokenKeys.add(info.aKey);
+    if (info.bKey) affectedTokenKeys.add(info.bKey);
+
+    delete pairs[key];
+    deletedAny = true;
+
+    debugLog("flushPendingManualDisengages:removed-pair", {
+      key,
+      pair: info
+    });
+  }
+
+  if (!deletedAny) {
+    debugLog("flushPendingManualDisengages:no-pairs-removed", {
+      tokenKeys,
+      loadedPairs: summarizePairs(pairs)
+    });
+    return;
+  }
+
+  for (const key of affectedTokenKeys) {
+    _manualDisengageTokenSuppress.add(key);
+  }
+
+  try {
+    await commitEngagementState(combat, pairs);
+
+    debugLog("flushPendingManualDisengages:after-commit", {
+      tokenKeys,
+      affectedTokenKeys: Array.from(affectedTokenKeys),
+      finalPairs: summarizePairs(await loadEngagementPairs(combat))
+    });
+  } finally {
+    setTimeout(() => {
+      for (const key of affectedTokenKeys) {
+        _manualDisengageTokenSuppress.delete(key);
+      }
+
+      debugLog("flushPendingManualDisengages:manual-suppress-cleared", {
+        affectedTokenKeys: Array.from(affectedTokenKeys),
+        remainingSuppress: Array.from(_manualDisengageTokenSuppress)
+      });
+    }, 100);
+  }
+}
+
+function scheduleManualDisengageFlush(combat, tokenKey) {
+  if (!combat || !tokenKey) return;
+
+  _pendingManualDisengageTokenKeys.add(tokenKey);
+
+  debugLog("scheduleManualDisengageFlush", {
+    tokenKey,
+    pending: Array.from(_pendingManualDisengageTokenKeys)
+  });
+
+  if (_manualDisengageFlushTimer) {
+    clearTimeout(_manualDisengageFlushTimer);
+  }
+
+  _manualDisengageFlushTimer = setTimeout(() => {
+    _manualDisengageFlushTimer = null;
+
+    queueEngagementUpdate(async () => {
+      await flushPendingManualDisengages(combat);
+    });
+  }, 50);
+}
+
 async function handleActorUnconsciousCleanup(combatant, combat) {
   const tokenDoc = getTokenDocFromCombatant(combatant);
   const tokenKey = getPersistentTokenKey(tokenDoc);
@@ -998,7 +1097,8 @@ async function handleManualEngagedRemovalByToken(tokenDoc, combat) {
   });
 
   if (!tokenKey || !combat) return;
-  await removePairsForTokenKey(combat, tokenKey);
+
+  scheduleManualDisengageFlush(combat, tokenKey);
 }
 
 async function handleManualEngagedRemovalByEffect(effect) {
