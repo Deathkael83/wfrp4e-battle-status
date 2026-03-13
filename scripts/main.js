@@ -661,44 +661,47 @@ async function markEngagedPairTokens(attackerTest, defenderTest) {
 }
 
 async function removePairsForTokenId(combat, tokenId) {
-  if (!combat || !tokenId) return {};
-  
-  // Carica le coppie attuali
-  let pairs = await loadEngagementPairs(combat);
-  const affectedTokenIds = new Set([tokenId]);
-  let deletedAny = false;
+  if (!combat || !tokenId) return;
 
-  // Identifica e rimuovi TUTTE le coppie che contengono questo tokenId
+  let pairs = await loadEngagementPairs(combat);
+  // Trova l'attore legato a questo ID per avere anche il suo ActorID
+  const tokenDoc = canvas.scene.tokens.get(tokenId);
+  const actorId = tokenDoc?.actorId;
+
+  let deletedAny = false;
+  const affectedTokenIds = new Set([tokenId]);
+
   for (const [key, info] of Object.entries(pairs)) {
-    if (info.aToken === tokenId || info.bToken === tokenId) {
+    // Controlla se il tokenId O l'actorId corrispondono a aToken/aActor o bToken/bActor
+    const matchesA = info.aToken === tokenId || (actorId && info.aActor === actorId);
+    const matchesB = info.bToken === tokenId || (actorId && info.bActor === actorId);
+
+    if (matchesA || matchesB) {
       if (info.aToken) affectedTokenIds.add(info.aToken);
       if (info.bToken) affectedTokenIds.add(info.bToken);
-      delete pairs[key]; // Rimuove dalla memoria locale
+      
+      delete pairs[key]; // Rimuove la coppia incriminata
       deletedAny = true;
-	  console.log("Tentativo rimozione coppie per:", tokenId, "Coppie attuali:", pairs);
+      console.log(`WFRP4e Engagement: Rimossa coppia obsoleta ${key}`);
     }
   }
 
-  if (!deletedAny) return pairs;
+  if (deletedAny) {
+    // Attiviamo la soppressione per tutti i token coinvolti nella pulizia
+    for (const id of affectedTokenIds) {
+      _manualDisengageTokenSuppress.add(id);
+    }
 
-  // IMPORTANTE: Sincronizza i flag di soppressione PRIMA del commit
-  for (const id of affectedTokenIds) {
-    _manualDisengageTokenSuppress.add(id);
-  }
+    await commitEngagementState(combat, pairs);
 
-  try {
-    // Forza il salvataggio dei flag e il sync delle condizioni
-    return await commitEngagementState(combat, pairs);
-  } finally {
-    // Aumenta il timeout a 200ms per sicurezza contro la latenza del DB
+    // Timeout generoso per permettere al DB di Foundry di aggiornarsi
     setTimeout(() => {
       for (const id of affectedTokenIds) {
         _manualDisengageTokenSuppress.delete(id);
       }
-    }, 200);
+    }, 300);
   }
 }
-
 
 async function handleActorUnconsciousCleanup(combatant, combat) {
   const tokenId = combatant?.token?.id ?? combatant?.tokenId;
