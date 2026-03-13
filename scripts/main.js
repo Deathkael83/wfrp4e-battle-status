@@ -662,35 +662,43 @@ async function markEngagedPairTokens(attackerTest, defenderTest) {
 
 async function removePairsForTokenId(combat, tokenId) {
   if (!combat || !tokenId) return {};
-
-  const pairs = await loadEngagementPairs(combat);
+  
+  // Carica le coppie attuali
+  let pairs = await loadEngagementPairs(combat);
   const affectedTokenIds = new Set([tokenId]);
+  let deletedAny = false;
 
+  // Identifica e rimuovi TUTTE le coppie che contengono questo tokenId
   for (const [key, info] of Object.entries(pairs)) {
-    if (!info) continue;
-
     if (info.aToken === tokenId || info.bToken === tokenId) {
       if (info.aToken) affectedTokenIds.add(info.aToken);
       if (info.bToken) affectedTokenIds.add(info.bToken);
-      delete pairs[key];
+      delete pairs[key]; // Rimuove dalla memoria locale
+      deletedAny = true;
+	  console.log("Tentativo rimozione coppie per:", tokenId, "Coppie attuali:", pairs);
     }
   }
 
-  for (const affectedId of affectedTokenIds) {
-    _manualDisengageTokenSuppress.add(affectedId);
+  if (!deletedAny) return pairs;
+
+  // IMPORTANTE: Sincronizza i flag di soppressione PRIMA del commit
+  for (const id of affectedTokenIds) {
+    _manualDisengageTokenSuppress.add(id);
   }
 
   try {
+    // Forza il salvataggio dei flag e il sync delle condizioni
     return await commitEngagementState(combat, pairs);
   } finally {
-    // lascia passare l'intero ciclo hook/DB prima di sbloccare la riapplicazione
+    // Aumenta il timeout a 200ms per sicurezza contro la latenza del DB
     setTimeout(() => {
-      for (const affectedId of affectedTokenIds) {
-        _manualDisengageTokenSuppress.delete(affectedId);
+      for (const id of affectedTokenIds) {
+        _manualDisengageTokenSuppress.delete(id);
       }
-    }, 50);
+    }, 200);
   }
 }
+
 
 async function handleActorUnconsciousCleanup(combatant, combat) {
   const tokenId = combatant?.token?.id ?? combatant?.tokenId;
