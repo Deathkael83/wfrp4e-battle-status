@@ -76,6 +76,7 @@ function gmChat(htmlMsg) {
 // ---------------------------------------------------------------------------
 const _suppressEngagedEffectHook = new Set();
 let _engagementUpdateQueue = Promise.resolve();
+const _manualDisengageTokenSuppress = new Set();
 
 function queueEngagementUpdate(fn) {
   _engagementUpdateQueue = _engagementUpdateQueue
@@ -569,8 +570,17 @@ async function syncEngagedConditions(combat, pairs) {
 
     const shouldBeEngaged = activeTokenIds.has(tokenId);
     const hasEngaged = tokenActor.hasCondition?.("engaged") ?? false;
+    const suppressManualReadd = _manualDisengageTokenSuppress.has(tokenId);
 
     if (shouldBeEngaged && !hasEngaged) {
+      if (suppressManualReadd) {
+        debugLog("Skipping engaged re-add during manual disengage sync", {
+          tokenId,
+          tokenName: c.token?.name || c.name || tokenActor.name
+        });
+        continue;
+      }
+
       await addEngagedIfMissing(tokenActor);
     } else if (!shouldBeEngaged && hasEngaged) {
       await removeEngagedSilently(tokenActor);
@@ -654,15 +664,32 @@ async function removePairsForTokenId(combat, tokenId) {
   if (!combat || !tokenId) return {};
 
   const pairs = await loadEngagementPairs(combat);
+  const affectedTokenIds = new Set([tokenId]);
 
   for (const [key, info] of Object.entries(pairs)) {
     if (!info) continue;
+
     if (info.aToken === tokenId || info.bToken === tokenId) {
+      if (info.aToken) affectedTokenIds.add(info.aToken);
+      if (info.bToken) affectedTokenIds.add(info.bToken);
       delete pairs[key];
     }
   }
 
-  return await commitEngagementState(combat, pairs);
+  for (const affectedId of affectedTokenIds) {
+    _manualDisengageTokenSuppress.add(affectedId);
+  }
+
+  try {
+    return await commitEngagementState(combat, pairs);
+  } finally {
+    // lascia passare l'intero ciclo hook/DB prima di sbloccare la riapplicazione
+    setTimeout(() => {
+      for (const affectedId of affectedTokenIds) {
+        _manualDisengageTokenSuppress.delete(affectedId);
+      }
+    }, 50);
+  }
 }
 
 async function handleActorUnconsciousCleanup(combatant, combat) {
