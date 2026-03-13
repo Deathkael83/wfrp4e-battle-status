@@ -50,6 +50,22 @@ function debugLog(...args) {
   console.debug(`[${MODULE_ID}]`, ...args);
 }
 
+function summarizePairs(pairs) {
+  const obj = pairs || {};
+  return Object.fromEntries(
+    Object.entries(obj).map(([key, info]) => [
+      key,
+      {
+        aToken: info?.aToken ?? null,
+        bToken: info?.bToken ?? null,
+        aKey: info?.aKey ?? null,
+        bKey: info?.bKey ?? null,
+        lastRound: info?.lastRound ?? null
+      }
+    ])
+  );
+}
+
 // ---------------------------------------------------------------------------
 // GM/Assistant GM chat helper
 // ---------------------------------------------------------------------------
@@ -167,13 +183,20 @@ function getCombatantByTokenKey(combat, tokenKey) {
 // ---------------------------------------------------------------------------
 async function loadEngagementPairs(combat) {
   if (!combat) return {};
-  return duplicatePairs((await combat.getFlag(MODULE_ID, "engagedPairs")) || {});
+  const loaded = duplicatePairs((await combat.getFlag(MODULE_ID, "engagedPairs")) || {});
+  debugLog("loadEngagementPairs", summarizePairs(loaded));
+  return loaded;
 }
 
 async function setEngagementPairsFlag(combat, pairs) {
   if (!combat) return;
 
   const hasPairs = pairs && Object.keys(pairs).length > 0;
+
+  debugLog("setEngagementPairsFlag", {
+    hasPairs,
+    pairs: summarizePairs(pairs)
+  });
 
   if (!hasPairs) {
     await combat.unsetFlag(MODULE_ID, "engagedPairs");
@@ -432,6 +455,12 @@ async function removeEngagedSilently(actor) {
 
   if (!effects.length) return;
 
+  debugLog("removeEngagedSilently:start", {
+    actorName: actor.name,
+    actorUuid: actor.uuid,
+    effects: effects.map((e) => ({ uuid: e.uuid, name: e.name, label: e.label }))
+  });
+
   try {
     for (const effect of effects) {
       if (effect?.uuid) _suppressEngagedEffectDeletes.add(effect.uuid);
@@ -444,11 +473,22 @@ async function removeEngagedSilently(actor) {
       }
     }, 0);
   }
+
+  debugLog("removeEngagedSilently:end", {
+    actorName: actor.name,
+    actorUuid: actor.uuid
+  });
 }
 
 async function addEngagedIfMissing(actor) {
   if (!actor?.addCondition) return;
   if (actor.hasCondition?.("engaged")) return;
+
+  debugLog("addEngagedIfMissing", {
+    actorName: actor.name,
+    actorUuid: actor.uuid
+  });
+
   await actor.addCondition("engaged");
 }
 
@@ -469,7 +509,15 @@ function getTokenRefFromTest(test, actor, combat) {
     const tokenDoc = scene?.tokens?.get(tokenId) || null;
     const tokenKey = getPersistentTokenKey(tokenDoc);
 
-    return tokenKey ? { sceneId, tokenId, tokenKey } : null;
+    const result = tokenKey ? { sceneId, tokenId, tokenKey } : null;
+    debugLog("getTokenRefFromTest:speaker", {
+      actorName: actor?.name,
+      sceneId,
+      tokenId,
+      tokenKey,
+      result
+    });
+    return result;
   }
 
   if (combat && actor) {
@@ -481,30 +529,65 @@ function getTokenRefFromTest(test, actor, combat) {
       const resolvedTokenId = tokenDoc?.id ?? combatant.tokenId ?? null;
       const tokenKey = getPersistentTokenKey(tokenDoc);
 
-      if (resolvedSceneId && resolvedTokenId && tokenKey) {
-        return { sceneId: resolvedSceneId, tokenId: resolvedTokenId, tokenKey };
-      }
+      const result = (resolvedSceneId && resolvedTokenId && tokenKey)
+        ? { sceneId: resolvedSceneId, tokenId: resolvedTokenId, tokenKey }
+        : null;
+
+      debugLog("getTokenRefFromTest:fallback", {
+        actorName: actor?.name,
+        actorUuid: actor?.uuid,
+        matches: matches.map((m) => ({
+          tokenId: m.token?.id ?? m.tokenId,
+          tokenName: m.token?.name ?? m.name,
+          tokenKey: getPersistentTokenKey(getTokenDocFromCombatant(m))
+        })),
+        result
+      });
+
+      return result;
     }
   }
+
+  debugLog("getTokenRefFromTest:unresolved", {
+    actorName: actor?.name,
+    actorUuid: actor?.uuid
+  });
 
   return null;
 }
 
 function resolveTokenDocFromEffect(effect, combat) {
   const actor = effect?.parent;
-  if (!actor || !combat) return null;
+  if (!actor || !combat) {
+    debugLog("resolveTokenDocFromEffect:no-actor-or-combat", {
+      effectUuid: effect?.uuid,
+      actorUuid: actor?.uuid
+    });
+    return null;
+  }
 
-  // Best case: token actor
   if (actor.isToken && actor.token) {
+    debugLog("resolveTokenDocFromEffect:actor-is-token", {
+      effectUuid: effect?.uuid,
+      actorUuid: actor?.uuid,
+      tokenId: actor.token.id,
+      tokenName: actor.token.name,
+      tokenKey: getPersistentTokenKey(actor.token)
+    });
     return actor.token;
   }
 
-  // Token parent
   if (actor.parent?.documentName === "Token") {
+    debugLog("resolveTokenDocFromEffect:token-parent", {
+      effectUuid: effect?.uuid,
+      actorUuid: actor?.uuid,
+      tokenId: actor.parent.id,
+      tokenName: actor.parent.name,
+      tokenKey: getPersistentTokenKey(actor.parent)
+    });
     return actor.parent;
   }
 
-  // UUID with Scene.Token
   const candidateUuids = [effect?.uuid, actor?.uuid].filter(Boolean);
 
   for (const uuid of candidateUuids) {
@@ -514,20 +597,60 @@ function resolveTokenDocFromEffect(effect, combat) {
     const [, sceneId, tokenId] = match;
     const scene = game.scenes.get(sceneId);
     const tokenDoc = scene?.tokens?.get(tokenId);
-    if (tokenDoc) return tokenDoc;
+
+    if (tokenDoc) {
+      debugLog("resolveTokenDocFromEffect:uuid-match", {
+        effectUuid: effect?.uuid,
+        actorUuid: actor?.uuid,
+        sourceUuid: uuid,
+        tokenId,
+        tokenName: tokenDoc.name,
+        tokenKey: getPersistentTokenKey(tokenDoc)
+      });
+      return tokenDoc;
+    }
   }
 
-  // Active tokens only if unique
   const activeTokens = actor.getActiveTokens?.(true) || [];
   if (activeTokens.length === 1) {
-    return activeTokens[0]?.document || activeTokens[0];
+    const tokenDoc = activeTokens[0]?.document || activeTokens[0];
+    debugLog("resolveTokenDocFromEffect:active-token", {
+      effectUuid: effect?.uuid,
+      actorUuid: actor?.uuid,
+      tokenId: tokenDoc?.id,
+      tokenName: tokenDoc?.name,
+      tokenKey: getPersistentTokenKey(tokenDoc)
+    });
+    return tokenDoc;
   }
 
-  // Unique combat token by token actor uuid
   const matches = getCombatantsForActor(actor, combat);
   if (matches.length === 1) {
-    return getTokenDocFromCombatant(matches[0]);
+    const tokenDoc = getTokenDocFromCombatant(matches[0]);
+    debugLog("resolveTokenDocFromEffect:combat-match", {
+      effectUuid: effect?.uuid,
+      actorUuid: actor?.uuid,
+      tokenId: tokenDoc?.id,
+      tokenName: tokenDoc?.name,
+      tokenKey: getPersistentTokenKey(tokenDoc)
+    });
+    return tokenDoc;
   }
+
+  debugLog("resolveTokenDocFromEffect:unresolved", {
+    effectUuid: effect?.uuid,
+    actorUuid: actor?.uuid,
+    activeTokens: activeTokens.map((t) => ({
+      tokenId: t?.document?.id ?? t?.id,
+      tokenName: t?.document?.name ?? t?.name,
+      tokenKey: getPersistentTokenKey(t?.document || t)
+    })),
+    matches: matches.map((m) => ({
+      tokenId: m.token?.id ?? m.tokenId,
+      tokenName: m.token?.name ?? m.name,
+      tokenKey: getPersistentTokenKey(getTokenDocFromCombatant(m))
+    }))
+  });
 
   return null;
 }
@@ -568,22 +691,54 @@ function pruneEngagementPairs(combat, pairs) {
   const normalized = {};
 
   for (const [key, info] of Object.entries(pairs || {})) {
-    if (!info?.aToken || !info?.bToken || !info?.aKey || !info?.bKey) continue;
+    if (!info?.aToken || !info?.bToken || !info?.aKey || !info?.bKey) {
+      debugLog("pruneEngagementPairs:skip-missing-fields", { key, info });
+      continue;
+    }
 
     const aCombatant = getCombatantByTokenKey(combat, info.aKey);
     const bCombatant = getCombatantByTokenKey(combat, info.bKey);
-    if (!aCombatant || !bCombatant) continue;
+    if (!aCombatant || !bCombatant) {
+      debugLog("pruneEngagementPairs:skip-missing-combatant", {
+        key,
+        info,
+        aFound: !!aCombatant,
+        bFound: !!bCombatant
+      });
+      continue;
+    }
 
     const aTokenActor = getTokenActorFromCombatant(aCombatant);
     const bTokenActor = getTokenActorFromCombatant(bCombatant);
-    if (!aTokenActor || !bTokenActor) continue;
+    if (!aTokenActor || !bTokenActor) {
+      debugLog("pruneEngagementPairs:skip-missing-token-actor", { key, info });
+      continue;
+    }
 
-    if (actorIsUnconscious(aTokenActor) || actorIsUnconscious(bTokenActor)) continue;
-    if (aTokenActor.hasCondition?.("dead") || bTokenActor.hasCondition?.("dead")) continue;
+    if (actorIsUnconscious(aTokenActor) || actorIsUnconscious(bTokenActor)) {
+      debugLog("pruneEngagementPairs:skip-unconscious", {
+        key,
+        info,
+        aName: aCombatant.token?.name,
+        bName: bCombatant.token?.name
+      });
+      continue;
+    }
+
+    if (aTokenActor.hasCondition?.("dead") || bTokenActor.hasCondition?.("dead")) {
+      debugLog("pruneEngagementPairs:skip-dead", {
+        key,
+        info,
+        aName: aCombatant.token?.name,
+        bName: bCombatant.token?.name
+      });
+      continue;
+    }
 
     normalized[key] = info;
   }
 
+  debugLog("pruneEngagementPairs:result", summarizePairs(normalized));
   return normalized;
 }
 
@@ -596,6 +751,12 @@ async function syncEngagedConditions(combat, pairs) {
     activeTokenKeys.add(info.bKey);
   }
 
+  debugLog("syncEngagedConditions:start", {
+    activeTokenKeys: Array.from(activeTokenKeys),
+    manualSuppress: Array.from(_manualDisengageTokenSuppress),
+    pairs: summarizePairs(pairs)
+  });
+
   for (const c of combat.combatants) {
     const tokenDoc = getTokenDocFromCombatant(c);
     const tokenActor = getTokenActorFromCombatant(c);
@@ -607,9 +768,19 @@ async function syncEngagedConditions(combat, pairs) {
     const hasEngaged = tokenActor.hasCondition?.("engaged") ?? false;
     const suppressManualReadd = _manualDisengageTokenSuppress.has(tokenKey);
 
+    debugLog("syncEngagedConditions:token", {
+      tokenId: tokenDoc.id,
+      tokenKey,
+      tokenName: tokenDoc.name || c.name || tokenActor.name,
+      shouldBeEngaged,
+      hasEngaged,
+      suppressManualReadd
+    });
+
     if (shouldBeEngaged && !hasEngaged) {
       if (suppressManualReadd) {
-        debugLog("Skipping engaged re-add during manual disengage sync", {
+        debugLog("syncEngagedConditions:skip-readd", {
+          tokenId: tokenDoc.id,
           tokenKey,
           tokenName: tokenDoc.name || c.name || tokenActor.name
         });
@@ -621,15 +792,36 @@ async function syncEngagedConditions(combat, pairs) {
       await removeEngagedSilently(tokenActor);
     }
   }
+
+  debugLog("syncEngagedConditions:end");
 }
 
 async function commitEngagementState(combat, pairs) {
   if (!combat) return {};
 
+  debugLog("commitEngagementState:start", {
+    inputPairs: summarizePairs(pairs)
+  });
+
   const normalized = pruneEngagementPairs(combat, pairs);
+
+  debugLog("commitEngagementState:after-prune", {
+    normalizedPairs: summarizePairs(normalized)
+  });
+
   await setEngagementPairsFlag(combat, normalized);
+
+  const reloadedAfterSave = duplicatePairs((await combat.getFlag(MODULE_ID, "engagedPairs")) || {});
+  debugLog("commitEngagementState:after-save-reload", {
+    savedPairs: summarizePairs(reloadedAfterSave)
+  });
+
   await syncEngagedConditions(combat, normalized);
   await refreshEngagementUI(combat, normalized);
+
+  debugLog("commitEngagementState:end", {
+    finalPairs: summarizePairs(normalized)
+  });
 
   return normalized;
 }
@@ -679,6 +871,12 @@ async function markEngagedPairTokens(attackerTest, defenderTest) {
     lastRound: getCurrentRound()
   };
 
+  debugLog("markEngagedPairTokens:before-commit", {
+    pairKey: key,
+    pair: pairs[key],
+    allPairs: summarizePairs(pairs)
+  });
+
   await commitEngagementState(combat, pairs);
 
   const attackerName = getTokenNameFromTest(attackerTest, attackerActor, combat);
@@ -702,11 +900,24 @@ async function removePairsForTokenKey(combat, tokenKey) {
   const affectedTokenKeys = new Set([tokenKey]);
   let deletedAny = false;
 
+  debugLog("removePairsForTokenKey:start", {
+    tokenKey,
+    loadedPairs: summarizePairs(pairs)
+  });
+
   for (const [key, info] of Object.entries(pairs)) {
     if (!info) continue;
 
     const matchesA = info.aKey === tokenKey;
     const matchesB = info.bKey === tokenKey;
+
+    debugLog("removePairsForTokenKey:inspect-pair", {
+      key,
+      tokenKey,
+      matchesA,
+      matchesB,
+      pair: info
+    });
 
     if (matchesA || matchesB) {
       if (info.aKey) affectedTokenKeys.add(info.aKey);
@@ -715,7 +926,7 @@ async function removePairsForTokenKey(combat, tokenKey) {
       delete pairs[key];
       deletedAny = true;
 
-      debugLog("Removed engagement pair", {
+      debugLog("removePairsForTokenKey:removed-pair", {
         key,
         removedForTokenKey: tokenKey,
         pair: info
@@ -724,21 +935,41 @@ async function removePairsForTokenKey(combat, tokenKey) {
   }
 
   if (!deletedAny) {
-    debugLog("No engagement pairs found for token removal", { tokenKey });
+    debugLog("removePairsForTokenKey:no-pairs-found", { tokenKey });
     return {};
   }
+
+  debugLog("removePairsForTokenKey:before-commit", {
+    tokenKey,
+    affectedTokenKeys: Array.from(affectedTokenKeys),
+    remainingPairs: summarizePairs(pairs)
+  });
 
   for (const key of affectedTokenKeys) {
     _manualDisengageTokenSuppress.add(key);
   }
 
   try {
-    return await commitEngagementState(combat, pairs);
+    const result = await commitEngagementState(combat, pairs);
+
+    debugLog("removePairsForTokenKey:after-commit", {
+      tokenKey,
+      affectedTokenKeys: Array.from(affectedTokenKeys),
+      committedPairs: summarizePairs(result)
+    });
+
+    return result;
   } finally {
     setTimeout(() => {
       for (const key of affectedTokenKeys) {
         _manualDisengageTokenSuppress.delete(key);
       }
+
+      debugLog("removePairsForTokenKey:manual-suppress-cleared", {
+        tokenKey,
+        affectedTokenKeys: Array.from(affectedTokenKeys),
+        remainingSuppress: Array.from(_manualDisengageTokenSuppress)
+      });
     }, 100);
   }
 }
@@ -746,12 +977,26 @@ async function removePairsForTokenKey(combat, tokenKey) {
 async function handleActorUnconsciousCleanup(combatant, combat) {
   const tokenDoc = getTokenDocFromCombatant(combatant);
   const tokenKey = getPersistentTokenKey(tokenDoc);
+
+  debugLog("handleActorUnconsciousCleanup", {
+    tokenId: tokenDoc?.id,
+    tokenKey,
+    tokenName: tokenDoc?.name
+  });
+
   if (!tokenKey) return {};
   return await removePairsForTokenKey(combat, tokenKey);
 }
 
 async function handleManualEngagedRemovalByToken(tokenDoc, combat) {
   const tokenKey = getPersistentTokenKey(tokenDoc);
+
+  debugLog("handleManualEngagedRemovalByToken", {
+    tokenId: tokenDoc?.id,
+    tokenKey,
+    tokenName: tokenDoc?.name
+  });
+
   if (!tokenKey || !combat) return;
   await removePairsForTokenKey(combat, tokenKey);
 }
@@ -761,6 +1006,15 @@ async function handleManualEngagedRemovalByEffect(effect) {
   if (!combat) return;
 
   const tokenDoc = resolveTokenDocFromEffect(effect, combat);
+
+  debugLog("handleManualEngagedRemovalByEffect", {
+    effectUuid: effect?.uuid,
+    effectName: effect?.name || effect?.label,
+    parentUuid: effect?.parent?.uuid,
+    resolvedTokenId: tokenDoc?.id,
+    resolvedTokenName: tokenDoc?.name,
+    resolvedTokenKey: getPersistentTokenKey(tokenDoc)
+  });
 
   if (!tokenDoc) {
     debugLog("Cannot resolve exact token for manual engaged removal; skipping cleanup", {
@@ -784,6 +1038,11 @@ async function handleRoundChange(combat, changed) {
 
   const newRound = changed.round;
   if (!newRound || newRound < 1) return;
+
+  debugLog("handleRoundChange:start", {
+    changed,
+    newRound
+  });
 
   if (newRound === 1) {
     for (const c of combat.combatants) {
@@ -813,6 +1072,12 @@ async function handleRoundChange(combat, changed) {
     stillPairs[key] = info;
   }
 
+  debugLog("handleRoundChange:previous-round-filter", {
+    previousRound,
+    loadedPairs: summarizePairs(pairs),
+    stillPairs: summarizePairs(stillPairs)
+  });
+
   await commitEngagementState(combat, stillPairs);
 
   const activeTokenKeys = new Set();
@@ -820,6 +1085,8 @@ async function handleRoundChange(combat, changed) {
     if (info?.aKey) activeTokenKeys.add(info.aKey);
     if (info?.bKey) activeTokenKeys.add(info.bKey);
   }
+
+  debugLog("handleRoundChange:activeTokenKeys", Array.from(activeTokenKeys));
 
   for (const c of combat.combatants) {
     const tokenDoc = getTokenDocFromCombatant(c);
@@ -853,8 +1120,12 @@ async function handleTurnChange(combat, changed) {
 
   if (!unconsciousCombatants.length) return;
 
-  debugLog("Unconscious cleanup on turn change", {
-    unconscious: unconsciousCombatants.map((c) => c.token?.name || c.name || getTokenActorFromCombatant(c)?.name)
+  debugLog("handleTurnChange:unconscious-cleanup", {
+    unconscious: unconsciousCombatants.map((c) => ({
+      tokenId: c.token?.id ?? c.tokenId,
+      tokenName: c.token?.name || c.name || getTokenActorFromCombatant(c)?.name,
+      tokenKey: getPersistentTokenKey(getTokenDocFromCombatant(c))
+    }))
   });
 
   for (const c of unconsciousCombatants) {
@@ -920,6 +1191,8 @@ Hooks.once("ready", () => {
         if (!game.settings.get(MODULE_ID, "enableAutoEngaged")) return;
         if (combat.id !== getCurrentCombat()?.id) return;
 
+        debugLog("updateCombat", { changed, combatId: combat.id });
+
         await handleRoundChange(combat, changed);
         await handleTurnChange(combat, changed);
       } catch (err) {
@@ -934,17 +1207,40 @@ Hooks.once("ready", () => {
         if (!game.settings.get(MODULE_ID, "enableAutoEngaged")) return;
 
         const actor = effect?.parent;
-        if (!actor?.hasCondition) return;
-
-        if (_suppressEngagedEffectDeletes.has(effect?.uuid)) {
-          debugLog("Ignoring suppressed automatic engaged delete", { effectUuid: effect?.uuid });
+        if (!actor?.hasCondition) {
+          debugLog("deleteActiveEffect:skip-no-actor-hasCondition", {
+            effectUuid: effect?.uuid,
+            options,
+            userId
+          });
           return;
         }
 
-        if (!effectMatchesCondition(effect, "engaged", "WFRP4E.ConditionName.Engaged")) return;
+        debugLog("deleteActiveEffect:start", {
+          effectUuid: effect?.uuid,
+          effectName: effect?.name || effect?.label,
+          actorName: actor?.name,
+          actorUuid: actor?.uuid,
+          options,
+          userId,
+          suppressedByEffectUuid: _suppressEngagedEffectDeletes.has(effect?.uuid)
+        });
+
+        if (_suppressEngagedEffectDeletes.has(effect?.uuid)) {
+          debugLog("deleteActiveEffect:skip-suppressed-automatic", { effectUuid: effect?.uuid });
+          return;
+        }
+
+        if (!effectMatchesCondition(effect, "engaged", "WFRP4E.ConditionName.Engaged")) {
+          debugLog("deleteActiveEffect:skip-not-engaged", {
+            effectUuid: effect?.uuid,
+            effectName: effect?.name || effect?.label
+          });
+          return;
+        }
 
         if (options?.manual === false || options?.isAuto === true) {
-          debugLog("Ignoring scripted/automatic engaged deletion", {
+          debugLog("deleteActiveEffect:skip-automatic-options", {
             effectUuid: effect?.uuid,
             options,
             userId
@@ -954,7 +1250,7 @@ Hooks.once("ready", () => {
 
         await handleManualEngagedRemovalByEffect(effect);
 
-        debugLog("Engagement cleanup triggered by manual engaged delete", {
+        debugLog("deleteActiveEffect:end-manual-cleanup", {
           actor: actor.name,
           actorUuid: actor.uuid,
           effectUuid: effect?.uuid,
@@ -985,6 +1281,17 @@ Hooks.once("ready", () => {
 
         const tokenDoc = resolveTokenDocFromEffect(effect, combat);
         const tokenKey = getPersistentTokenKey(tokenDoc);
+
+        debugLog("createActiveEffect:resolved", {
+          effectUuid: effect?.uuid,
+          actorName: actor?.name,
+          actorUuid: actor?.uuid,
+          tokenId: tokenDoc?.id,
+          tokenName: tokenDoc?.name,
+          tokenKey,
+          isUnconscious,
+          isDead
+        });
 
         if (!tokenDoc?.id || !tokenKey) {
           debugLog("Cannot resolve exact token for unconscious/dead cleanup; skipping cleanup", {
