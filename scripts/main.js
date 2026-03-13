@@ -6,6 +6,11 @@ import { MODULE_ID, registerSettings } from "./settings.js";
  * - Applies/removes the "engaged" condition based on engagedPairs flag
  * - Cleans up on unconscious/dead/manual removal/combat end
  * - Shows engagement badges on tokens
+ *
+ * Core rule:
+ * - pair identity is TOKEN-BASED, never actor-based
+ * - manual engaged removal must resolve the exact token
+ * - engagedPairs flag is the single source of truth
  */
 
 // ---------------------------------------------------------------------------
@@ -74,9 +79,9 @@ function gmChat(htmlMsg) {
 // ---------------------------------------------------------------------------
 // Core globals
 // ---------------------------------------------------------------------------
-const _suppressEngagedEffectHook = new Set();
-let _engagementUpdateQueue = Promise.resolve();
+const _suppressEngagedEffectDeletes = new Set();
 const _manualDisengageTokenSuppress = new Set();
+let _engagementUpdateQueue = Promise.resolve();
 
 function queueEngagementUpdate(fn) {
   _engagementUpdateQueue = _engagementUpdateQueue
@@ -98,11 +103,6 @@ function getCurrentCombat() {
 function getCurrentRound() {
   const combat = getCurrentCombat();
   return combat ? combat.round || 0 : 0;
-}
-
-function makePairKey(aTokenId, bTokenId) {
-  const ids = [aTokenId, bTokenId].sort();
-  return `${ids[0]}-${ids[1]}`;
 }
 
 function duplicatePairs(pairs) {
@@ -134,6 +134,16 @@ function sameTokenActor(actorA, actorB) {
   return actorA.uuid === actorB.uuid;
 }
 
+function getPersistentTokenKey(tokenDoc) {
+  if (!tokenDoc?.uuid) return null;
+  return tokenDoc.uuid.replace(/\./g, "-");
+}
+
+function makePairKeyFromKeys(aKey, bKey) {
+  const ids = [aKey, bKey].sort();
+  return `${ids[0]}--${ids[1]}`;
+}
+
 function getCombatantsForActor(actor, combat) {
   if (!actor || !combat) return [];
 
@@ -141,6 +151,15 @@ function getCombatantsForActor(actor, combat) {
     const tokenActor = getTokenActorFromCombatant(c);
     return sameTokenActor(tokenActor, actor);
   });
+}
+
+function getCombatantByTokenKey(combat, tokenKey) {
+  if (!combat || !tokenKey) return null;
+
+  return combat.combatants.find((c) => {
+    const tokenDoc = getTokenDocFromCombatant(c);
+    return getPersistentTokenKey(tokenDoc) === tokenKey;
+  }) || null;
 }
 
 // ---------------------------------------------------------------------------
@@ -167,11 +186,6 @@ async function setEngagementPairsFlag(combat, pairs) {
 // ---------------------------------------------------------------------------
 // UI helpers
 // ---------------------------------------------------------------------------
-function getPersistentTokenId(tokenDoc) {
-  if (!tokenDoc?.uuid) return null;
-  return tokenDoc.uuid.replace(/\./g, "-");
-}
-
 function clearEngagementBadge(token) {
   const badge = token?.getChildByName("engagedBadge");
   if (badge) {
@@ -410,21 +424,25 @@ function effectMatchesCondition(effect, key, localizedKey) {
 }
 
 async function removeEngagedSilently(actor) {
-  if (!actor?.hasCondition?.("engaged")) return;
+  if (!actor?.effects?.size && !actor?.effects?.length) return;
 
-  const key = actor.uuid ?? actor.id;
-  _suppressEngagedEffectHook.add(key);
+  const effects = Array.from(actor.effects || []).filter((effect) =>
+    effectMatchesCondition(effect, "engaged", "WFRP4E.ConditionName.Engaged")
+  );
+
+  if (!effects.length) return;
 
   try {
-    const effects = Array.from(actor.effects || []).filter((effect) =>
-      effectMatchesCondition(effect, "engaged", "WFRP4E.ConditionName.Engaged")
-    );
-
     for (const effect of effects) {
+      if (effect?.uuid) _suppressEngagedEffectDeletes.add(effect.uuid);
       await effect.delete({ manual: false, isAuto: true });
     }
   } finally {
-    setTimeout(() => _suppressEngagedEffectHook.delete(key), 0);
+    setTimeout(() => {
+      for (const effect of effects) {
+        if (effect?.uuid) _suppressEngagedEffectDeletes.delete(effect.uuid);
+      }
+    }, 0);
   }
 }
 
@@ -447,19 +465,24 @@ function getTokenRefFromTest(test, actor, combat) {
   const tokenId = speaker.token || null;
 
   if (sceneId && tokenId) {
-    return { sceneId, tokenId };
+    const scene = game.scenes.get(sceneId) || canvas.scene;
+    const tokenDoc = scene?.tokens?.get(tokenId) || null;
+    const tokenKey = getPersistentTokenKey(tokenDoc);
+
+    return tokenKey ? { sceneId, tokenId, tokenKey } : null;
   }
 
   if (combat && actor) {
     const matches = getCombatantsForActor(actor, combat);
-
     if (matches.length === 1) {
       const combatant = matches[0];
-      const resolvedSceneId = combat.scene?.id || canvas.scene?.id || sceneId || null;
-      const resolvedTokenId = combatant.token?.id || combatant.tokenId || null;
+      const tokenDoc = getTokenDocFromCombatant(combatant);
+      const resolvedSceneId = combat.scene?.id || canvas.scene?.id || null;
+      const resolvedTokenId = tokenDoc?.id ?? combatant.tokenId ?? null;
+      const tokenKey = getPersistentTokenKey(tokenDoc);
 
-      if (resolvedSceneId && resolvedTokenId) {
-        return { sceneId: resolvedSceneId, tokenId: resolvedTokenId };
+      if (resolvedSceneId && resolvedTokenId && tokenKey) {
+        return { sceneId: resolvedSceneId, tokenId: resolvedTokenId, tokenKey };
       }
     }
   }
@@ -471,14 +494,17 @@ function resolveTokenDocFromEffect(effect, combat) {
   const actor = effect?.parent;
   if (!actor || !combat) return null;
 
+  // Best case: token actor
   if (actor.isToken && actor.token) {
     return actor.token;
   }
 
+  // Token parent
   if (actor.parent?.documentName === "Token") {
     return actor.parent;
   }
 
+  // UUID with Scene.Token
   const candidateUuids = [effect?.uuid, actor?.uuid].filter(Boolean);
 
   for (const uuid of candidateUuids) {
@@ -491,11 +517,13 @@ function resolveTokenDocFromEffect(effect, combat) {
     if (tokenDoc) return tokenDoc;
   }
 
+  // Active tokens only if unique
   const activeTokens = actor.getActiveTokens?.(true) || [];
   if (activeTokens.length === 1) {
     return activeTokens[0]?.document || activeTokens[0];
   }
 
+  // Unique combat token by token actor uuid
   const matches = getCombatantsForActor(actor, combat);
   if (matches.length === 1) {
     return getTokenDocFromCombatant(matches[0]);
@@ -503,6 +531,7 @@ function resolveTokenDocFromEffect(effect, combat) {
 
   return null;
 }
+
 function getTokenNameFromTest(test, actor, combat) {
   if (!actor) return t("wfrp4e_battle_status.UI.Unknown");
   if (!test) return actor.name;
@@ -539,10 +568,10 @@ function pruneEngagementPairs(combat, pairs) {
   const normalized = {};
 
   for (const [key, info] of Object.entries(pairs || {})) {
-    if (!info?.aToken || !info?.bToken) continue;
+    if (!info?.aToken || !info?.bToken || !info?.aKey || !info?.bKey) continue;
 
-    const aCombatant = getCombatantByTokenId(combat, info.aToken);
-    const bCombatant = getCombatantByTokenId(combat, info.bToken);
+    const aCombatant = getCombatantByTokenKey(combat, info.aKey);
+    const bCombatant = getCombatantByTokenKey(combat, info.bKey);
     if (!aCombatant || !bCombatant) continue;
 
     const aTokenActor = getTokenActorFromCombatant(aCombatant);
@@ -559,28 +588,30 @@ function pruneEngagementPairs(combat, pairs) {
 }
 
 async function syncEngagedConditions(combat, pairs) {
-  const activeTokenIds = new Set();
+  const activeTokenKeys = new Set();
 
   for (const info of Object.values(pairs || {})) {
-    if (!info?.aToken || !info?.bToken) continue;
-    activeTokenIds.add(info.aToken);
-    activeTokenIds.add(info.bToken);
+    if (!info?.aKey || !info?.bKey) continue;
+    activeTokenKeys.add(info.aKey);
+    activeTokenKeys.add(info.bKey);
   }
 
   for (const c of combat.combatants) {
-    const tokenId = c.token?.id ?? c.tokenId;
+    const tokenDoc = getTokenDocFromCombatant(c);
     const tokenActor = getTokenActorFromCombatant(c);
-    if (!tokenId || !tokenActor) continue;
+    const tokenKey = getPersistentTokenKey(tokenDoc);
 
-    const shouldBeEngaged = activeTokenIds.has(tokenId);
+    if (!tokenDoc?.id || !tokenActor || !tokenKey) continue;
+
+    const shouldBeEngaged = activeTokenKeys.has(tokenKey);
     const hasEngaged = tokenActor.hasCondition?.("engaged") ?? false;
-    const suppressManualReadd = _manualDisengageTokenSuppress.has(tokenId);
+    const suppressManualReadd = _manualDisengageTokenSuppress.has(tokenKey);
 
     if (shouldBeEngaged && !hasEngaged) {
       if (suppressManualReadd) {
         debugLog("Skipping engaged re-add during manual disengage sync", {
-          tokenId,
-          tokenName: c.token?.name || c.name || tokenActor.name
+          tokenKey,
+          tokenName: tokenDoc.name || c.name || tokenActor.name
         });
         continue;
       }
@@ -634,17 +665,17 @@ async function markEngagedPairTokens(attackerTest, defenderTest) {
     return;
   }
 
-  if (attackerTokenRef.tokenId === defenderTokenRef.tokenId) return;
+  if (attackerTokenRef.tokenKey === defenderTokenRef.tokenKey) return;
 
   const pairs = await loadEngagementPairs(combat);
-  const key = makePairKey(attackerTokenRef.tokenId, defenderTokenRef.tokenId);
+  const key = makePairKeyFromKeys(attackerTokenRef.tokenKey, defenderTokenRef.tokenKey);
 
   pairs[key] = {
     sceneId: attackerTokenRef.sceneId,
     aToken: attackerTokenRef.tokenId,
     bToken: defenderTokenRef.tokenId,
-    aActor: attackerActor.id,
-    bActor: defenderActor.id,
+    aKey: attackerTokenRef.tokenKey,
+    bKey: defenderTokenRef.tokenKey,
     lastRound: getCurrentRound()
   };
 
@@ -664,79 +695,77 @@ async function markEngagedPairTokens(attackerTest, defenderTest) {
   debugLog("Engaged pair added", { key, attackerName, defenderName });
 }
 
-async function removePairsForTokenId(combat, tokenId) {
-  if (!combat || !tokenId) return;
+async function removePairsForTokenKey(combat, tokenKey) {
+  if (!combat || !tokenKey) return {};
 
   const pairs = await loadEngagementPairs(combat);
-  const affectedTokenIds = new Set([tokenId]);
+  const affectedTokenKeys = new Set([tokenKey]);
   let deletedAny = false;
 
   for (const [key, info] of Object.entries(pairs)) {
     if (!info) continue;
 
-    const matchesA = info.aToken === tokenId;
-    const matchesB = info.bToken === tokenId;
+    const matchesA = info.aKey === tokenKey;
+    const matchesB = info.bKey === tokenKey;
 
     if (matchesA || matchesB) {
-      if (info.aToken) affectedTokenIds.add(info.aToken);
-      if (info.bToken) affectedTokenIds.add(info.bToken);
+      if (info.aKey) affectedTokenKeys.add(info.aKey);
+      if (info.bKey) affectedTokenKeys.add(info.bKey);
 
       delete pairs[key];
       deletedAny = true;
 
       debugLog("Removed engagement pair", {
         key,
-        removedForTokenId: tokenId,
+        removedForTokenKey: tokenKey,
         pair: info
       });
     }
   }
 
   if (!deletedAny) {
-    debugLog("No engagement pairs found for token removal", { tokenId });
-    return;
+    debugLog("No engagement pairs found for token removal", { tokenKey });
+    return {};
   }
 
-  for (const id of affectedTokenIds) {
-    _manualDisengageTokenSuppress.add(id);
+  for (const key of affectedTokenKeys) {
+    _manualDisengageTokenSuppress.add(key);
   }
 
   try {
-    await commitEngagementState(combat, pairs);
+    return await commitEngagementState(combat, pairs);
   } finally {
     setTimeout(() => {
-      for (const id of affectedTokenIds) {
-        _manualDisengageTokenSuppress.delete(id);
+      for (const key of affectedTokenKeys) {
+        _manualDisengageTokenSuppress.delete(key);
       }
     }, 100);
   }
 }
 
 async function handleActorUnconsciousCleanup(combatant, combat) {
-  const tokenId = combatant?.token?.id ?? combatant?.tokenId;
-  if (!tokenId) return {};
-  return await removePairsForTokenId(combat, tokenId);
+  const tokenDoc = getTokenDocFromCombatant(combatant);
+  const tokenKey = getPersistentTokenKey(tokenDoc);
+  if (!tokenKey) return {};
+  return await removePairsForTokenKey(combat, tokenKey);
 }
 
 async function handleManualEngagedRemovalByToken(tokenDoc, combat) {
-  if (!tokenDoc?.id || !combat) return;
-  await removePairsForTokenId(combat, tokenDoc.id);
+  const tokenKey = getPersistentTokenKey(tokenDoc);
+  if (!tokenKey || !combat) return;
+  await removePairsForTokenKey(combat, tokenKey);
 }
 
 async function handleManualEngagedRemovalByEffect(effect) {
-  const actor = effect?.parent;
-  if (!actor) return;
-
   const combat = getCurrentCombat();
   if (!combat) return;
 
   const tokenDoc = resolveTokenDocFromEffect(effect, combat);
 
-  if (!tokenDoc?.id) {
+  if (!tokenDoc) {
     debugLog("Cannot resolve exact token for manual engaged removal; skipping cleanup", {
-      actor: actor.name,
-      actorUuid: actor.uuid,
-      effectUuid: effect?.uuid
+      effectUuid: effect?.uuid,
+      parentUuid: effect?.parent?.uuid
     });
     return;
   }
@@ -763,6 +792,7 @@ async function handleRoundChange(combat, changed) {
 
       if (tokenActor.hasCondition?.("engaged")) {
         await removeEngagedSilently(tokenActor);
+
         const tokenName = c.token?.name || c.name || tokenActor.name;
         gmChat(tf("wfrp4e_battle_status.Chat.EngagedRemovedStartCombat", { token: tokenName }));
       }
@@ -785,19 +815,21 @@ async function handleRoundChange(combat, changed) {
 
   await commitEngagementState(combat, stillPairs);
 
-  const activeTokenIds = new Set();
+  const activeTokenKeys = new Set();
   for (const info of Object.values(stillPairs)) {
-    if (info?.aToken) activeTokenIds.add(info.aToken);
-    if (info?.bToken) activeTokenIds.add(info.bToken);
+    if (info?.aKey) activeTokenKeys.add(info.aKey);
+    if (info?.bKey) activeTokenKeys.add(info.bKey);
   }
 
   for (const c of combat.combatants) {
-    const tokenId = c.token?.id ?? c.tokenId;
+    const tokenDoc = getTokenDocFromCombatant(c);
+    const tokenKey = getPersistentTokenKey(tokenDoc);
     const tokenActor = getTokenActorFromCombatant(c);
-    if (!tokenId || !tokenActor) continue;
 
-    if (!activeTokenIds.has(tokenId)) {
-      const tokenName = c.token?.name || c.name || tokenActor.name;
+    if (!tokenDoc?.id || !tokenKey || !tokenActor) continue;
+
+    if (!activeTokenKeys.has(tokenKey)) {
+      const tokenName = tokenDoc.name || c.name || tokenActor.name;
       gmChat(
         tf("wfrp4e_battle_status.Chat.EngagedRemovedNoLongerEngaged", {
           token: tokenName,
@@ -896,60 +928,44 @@ Hooks.once("ready", () => {
     });
   });
 
-Hooks.on("deleteActiveEffect", async (effect, options, userId) => {
-  return queueEngagementUpdate(async () => {
-    try {
-      if (!game.settings.get(MODULE_ID, "enableAutoEngaged")) return;
+  Hooks.on("deleteActiveEffect", async (effect, options, userId) => {
+    return queueEngagementUpdate(async () => {
+      try {
+        if (!game.settings.get(MODULE_ID, "enableAutoEngaged")) return;
 
-      const actor = effect?.parent;
-      if (!actor?.hasCondition) return;
+        const actor = effect?.parent;
+        if (!actor?.hasCondition) return;
 
-      const suppressKey = actor.uuid ?? actor.id;
-      if (_suppressEngagedEffectHook.has(suppressKey)) return;
+        if (_suppressEngagedEffectDeletes.has(effect?.uuid)) {
+          debugLog("Ignoring suppressed automatic engaged delete", { effectUuid: effect?.uuid });
+          return;
+        }
 
-      if (!effectMatchesCondition(effect, "engaged", "WFRP4E.ConditionName.Engaged")) return;
+        if (!effectMatchesCondition(effect, "engaged", "WFRP4E.ConditionName.Engaged")) return;
 
-      // Ignora rimozioni automatiche/scriptate del modulo o di altre automazioni
-      if (options?.manual === false || options?.isAuto === true) {
-        debugLog("Ignoring scripted/automatic engaged deletion", {
+        if (options?.manual === false || options?.isAuto === true) {
+          debugLog("Ignoring scripted/automatic engaged deletion", {
+            effectUuid: effect?.uuid,
+            options,
+            userId
+          });
+          return;
+        }
+
+        await handleManualEngagedRemovalByEffect(effect);
+
+        debugLog("Engagement cleanup triggered by manual engaged delete", {
           actor: actor.name,
           actorUuid: actor.uuid,
           effectUuid: effect?.uuid,
           options,
           userId
         });
-        return;
+      } catch (err) {
+        debugLog("Error handling deleteActiveEffect for Engaged", err);
       }
-
-      const combat = getCurrentCombat();
-      if (!combat) return;
-
-      const tokenDoc = resolveTokenDocFromEffect(effect, combat);
-      if (!tokenDoc?.id) {
-        debugLog("Cannot resolve exact token for engaged delete cleanup; skipping cleanup", {
-          actor: actor.name,
-          actorUuid: actor.uuid,
-          effectUuid: effect?.uuid,
-          options
-        });
-        return;
-      }
-
-      await removePairsForTokenId(combat, tokenDoc.id);
-
-      debugLog("Engagement cleanup triggered by manual engaged delete", {
-        actor: actor.name,
-        actorUuid: actor.uuid,
-        effectUuid: effect?.uuid,
-        tokenId: tokenDoc.id,
-        options,
-        userId
-      });
-    } catch (err) {
-      debugLog("Error handling deleteActiveEffect for Engaged", err);
-    }
+    });
   });
-});
 
   Hooks.on("createActiveEffect", async (effect) => {
     return queueEngagementUpdate(async () => {
@@ -968,8 +984,9 @@ Hooks.on("deleteActiveEffect", async (effect, options, userId) => {
         if (!combat) return;
 
         const tokenDoc = resolveTokenDocFromEffect(effect, combat);
+        const tokenKey = getPersistentTokenKey(tokenDoc);
 
-        if (!tokenDoc?.id) {
+        if (!tokenDoc?.id || !tokenKey) {
           debugLog("Cannot resolve exact token for unconscious/dead cleanup; skipping cleanup", {
             actor: actor.name,
             actorUuid: actor.uuid,
@@ -980,13 +997,14 @@ Hooks.on("deleteActiveEffect", async (effect, options, userId) => {
           return;
         }
 
-        await removePairsForTokenId(combat, tokenDoc.id);
+        await removePairsForTokenKey(combat, tokenKey);
 
         debugLog("Engagement cleanup triggered by unconscious/dead", {
           actor: actor.name,
           actorUuid: actor.uuid,
           effectUuid: effect?.uuid,
           tokenId: tokenDoc.id,
+          tokenKey,
           unconscious: isUnconscious,
           dead: isDead
         });
