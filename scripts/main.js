@@ -115,7 +115,7 @@ function getCombatantByTokenId(combat, tokenId) {
 }
 
 function getTokenActorFromCombatant(combatant) {
-  return combatant?.token?.actor || combatant?.actor || null;
+  return combatant?.token?.actor || null;
 }
 
 function getTokenDocFromCombatant(combatant) {
@@ -130,9 +130,8 @@ function getSceneTokenName(sceneId, tokenId) {
 
 function sameTokenActor(actorA, actorB) {
   if (!actorA || !actorB) return false;
-  if (actorA.uuid && actorB.uuid) return actorA.uuid === actorB.uuid;
-  if (actorA.id && actorB.id) return actorA.id === actorB.id;
-  return false;
+  if (!actorA.uuid || !actorB.uuid) return false;
+  return actorA.uuid === actorB.uuid;
 }
 
 function getCombatantsForActor(actor, combat) {
@@ -140,7 +139,7 @@ function getCombatantsForActor(actor, combat) {
 
   return combat.combatants.filter((c) => {
     const tokenActor = getTokenActorFromCombatant(c);
-    return sameTokenActor(tokenActor, actor) || (c.actor && actor && c.actor.id === actor.id);
+    return sameTokenActor(tokenActor, actor);
   });
 }
 
@@ -168,6 +167,11 @@ async function setEngagementPairsFlag(combat, pairs) {
 // ---------------------------------------------------------------------------
 // UI helpers
 // ---------------------------------------------------------------------------
+function getPersistentTokenId(tokenDoc) {
+  if (!tokenDoc?.uuid) return null;
+  return tokenDoc.uuid.replace(/\./g, "-");
+}
+
 function clearEngagementBadge(token) {
   const badge = token?.getChildByName("engagedBadge");
   if (badge) {
@@ -448,6 +452,7 @@ function getTokenRefFromTest(test, actor, combat) {
 
   if (combat && actor) {
     const matches = getCombatantsForActor(actor, combat);
+
     if (matches.length === 1) {
       const combatant = matches[0];
       const resolvedSceneId = combat.scene?.id || canvas.scene?.id || sceneId || null;
@@ -498,7 +503,6 @@ function resolveTokenDocFromEffect(effect, combat) {
 
   return null;
 }
-
 function getTokenNameFromTest(test, actor, combat) {
   if (!actor) return t("wfrp4e_battle_status.UI.Unknown");
   if (!test) return actor.name;
@@ -663,43 +667,48 @@ async function markEngagedPairTokens(attackerTest, defenderTest) {
 async function removePairsForTokenId(combat, tokenId) {
   if (!combat || !tokenId) return;
 
-  let pairs = await loadEngagementPairs(combat);
-  // Trova l'attore legato a questo ID per avere anche il suo ActorID
-  const tokenDoc = canvas.scene.tokens.get(tokenId);
-  const actorId = tokenDoc?.actorId;
-
-  let deletedAny = false;
+  const pairs = await loadEngagementPairs(combat);
   const affectedTokenIds = new Set([tokenId]);
+  let deletedAny = false;
 
   for (const [key, info] of Object.entries(pairs)) {
-    // Controlla se il tokenId O l'actorId corrispondono a aToken/aActor o bToken/bActor
-    const matchesA = info.aToken === tokenId || (actorId && info.aActor === actorId);
-    const matchesB = info.bToken === tokenId || (actorId && info.bActor === actorId);
+    if (!info) continue;
+
+    const matchesA = info.aToken === tokenId;
+    const matchesB = info.bToken === tokenId;
 
     if (matchesA || matchesB) {
       if (info.aToken) affectedTokenIds.add(info.aToken);
       if (info.bToken) affectedTokenIds.add(info.bToken);
-      
-      delete pairs[key]; // Rimuove la coppia incriminata
+
+      delete pairs[key];
       deletedAny = true;
-      console.log(`WFRP4e Engagement: Rimossa coppia obsoleta ${key}`);
+
+      debugLog("Removed engagement pair", {
+        key,
+        removedForTokenId: tokenId,
+        pair: info
+      });
     }
   }
 
-  if (deletedAny) {
-    // Attiviamo la soppressione per tutti i token coinvolti nella pulizia
-    for (const id of affectedTokenIds) {
-      _manualDisengageTokenSuppress.add(id);
-    }
+  if (!deletedAny) {
+    debugLog("No engagement pairs found for token removal", { tokenId });
+    return;
+  }
 
+  for (const id of affectedTokenIds) {
+    _manualDisengageTokenSuppress.add(id);
+  }
+
+  try {
     await commitEngagementState(combat, pairs);
-
-    // Timeout generoso per permettere al DB di Foundry di aggiornarsi
+  } finally {
     setTimeout(() => {
       for (const id of affectedTokenIds) {
         _manualDisengageTokenSuppress.delete(id);
       }
-    }, 300);
+    }, 100);
   }
 }
 
