@@ -39,18 +39,18 @@ function systemAlias() {
   return val && val !== key ? val : "System";
 }
 
-  game.settings.register(MODULE_ID, "engagementTooltipVisibility", {
-    name: game.i18n.localize("wfrp4e_battle_status.Settings.EngagementTooltipVisibility.Name"),
-    hint: game.i18n.localize("wfrp4e_battle_status.Settings.EngagementTooltipVisibility.Hint"),
-    scope: "client",
-    config: true,
-    type: String,
-    choices: {
-      gm: game.i18n.localize("wfrp4e_battle_status.Settings.EngagementTooltipVisibility.Choices.GM"),
-      players: game.i18n.localize("wfrp4e_battle_status.Settings.EngagementTooltipVisibility.Choices.Players")
-    },
-    default: "gm"
-  });
+function canCurrentUserSeeEngagementTooltip() {
+  let visibility = "gm";
+  try {
+    visibility = game.settings.get(MODULE_ID, "engagementTooltipVisibility");
+  } catch {
+    visibility = "gm";
+  }
+
+  if (visibility === "players") return true;
+
+  return [3, 4].includes(game.user?.role);
+}
 
 // ---------------------------------------------------------------------------
 // Debug
