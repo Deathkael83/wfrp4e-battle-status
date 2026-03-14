@@ -48,7 +48,7 @@ function debugLog(...args) {
   } catch {
     return;
   }
-  console.debug(`[${MODULE_ID}]`, ...args);
+  console.log(`[${MODULE_ID}]`, ...args);
 }
 
 function summarizePairs(pairs) {
@@ -102,7 +102,8 @@ const _pendingEngagedDeleteTokenKeys = new Set();
 
 let _engagementUpdateQueue = Promise.resolve();
 let _engagedDeleteFlushTimer = null;
-let _engagedDeleteBurstOpen = false;
+let _lastManualEngagedDeleteAt = 0;
+const MANUAL_ENGAGED_DELETE_WINDOW_MS = 250;
 
 function queueEngagementUpdate(fn) {
   _engagementUpdateQueue = _engagementUpdateQueue
@@ -984,7 +985,6 @@ async function flushPendingEngagedDeletes(combat) {
 
   const tokenKeys = Array.from(_pendingEngagedDeleteTokenKeys);
   _pendingEngagedDeleteTokenKeys.clear();
-  _engagedDeleteBurstOpen = false;
 
   if (!tokenKeys.length) {
     debugLog("flushPendingEngagedDeletes:nothing-to-do");
@@ -1051,23 +1051,23 @@ async function flushPendingEngagedDeletes(combat) {
         affectedTokenKeys: Array.from(affectedTokenKeys),
         remainingSuppress: Array.from(_manualDisengageTokenSuppress)
       });
-    }, 1000);
+    }, 100);
   }
 }
 
 function scheduleEngagedDeleteFlush(combat, tokenKey, isManualOrigin = false) {
   if (!combat || !tokenKey) return;
 
-  _pendingEngagedDeleteTokenKeys.add(tokenKey);
-
   if (isManualOrigin) {
-    _engagedDeleteBurstOpen = true;
+    _lastManualEngagedDeleteAt = Date.now();
   }
+
+  _pendingEngagedDeleteTokenKeys.add(tokenKey);
 
   debugLog("scheduleEngagedDeleteFlush", {
     tokenKey,
     isManualOrigin,
-    burstOpen: _engagedDeleteBurstOpen,
+    lastManualEngagedDeleteAt: _lastManualEngagedDeleteAt,
     pending: Array.from(_pendingEngagedDeleteTokenKeys)
   });
 
@@ -1081,7 +1081,7 @@ function scheduleEngagedDeleteFlush(combat, tokenKey, isManualOrigin = false) {
     queueEngagementUpdate(async () => {
       await flushPendingEngagedDeletes(combat);
     });
-  }, 75);
+  }, MANUAL_ENGAGED_DELETE_WINDOW_MS);
 }
 
 async function handleActorUnconsciousCleanup(combatant, combat) {
@@ -1382,19 +1382,26 @@ Hooks.once("ready", () => {
         const isAutomatic = options?.manual === false || options?.isAuto === true;
 
         if (isAutomatic) {
-          if (_engagedDeleteBurstOpen) {
-            scheduleEngagedDeleteFlush(combat, tokenKey, false);
-            debugLog("deleteActiveEffect:batched-automatic-engaged-delete", {
-              tokenKey,
-              tokenName: tokenDoc.name
-            });
-          } else {
-            debugLog("deleteActiveEffect:ignore-automatic-outside-burst", {
-              tokenKey,
-              tokenName: tokenDoc.name
-            });
-          }
-          return;
+          const withinManualWindow =
+            Date.now() - _lastManualEngagedDeleteAt <= MANUAL_ENGAGED_DELETE_WINDOW_MS;
+
+            if (withinManualWindow) {
+              scheduleEngagedDeleteFlush(combat, tokenKey, false);
+              debugLog("deleteActiveEffect:batched-automatic-engaged-delete", {
+                tokenKey,
+                tokenName: tokenDoc.name,
+                withinManualWindow,
+                lastManualEngagedDeleteAt: _lastManualEngagedDeleteAt
+              });
+            } else {
+              debugLog("deleteActiveEffect:ignore-automatic-outside-window", {
+                tokenKey,
+                tokenName: tokenDoc.name,
+                withinManualWindow,
+                lastManualEngagedDeleteAt: _lastManualEngagedDeleteAt
+              });
+            }
+            return;
         }
 
         await handleManualEngagedRemovalByToken(tokenDoc, combat);
@@ -1487,7 +1494,7 @@ Hooks.once("ready", () => {
         }
 
         _pendingEngagedDeleteTokenKeys.clear();
-        _engagedDeleteBurstOpen = false;
+        _lastManualEngagedDeleteAt = 0;
 
         for (const c of combat.combatants) {
           const tokenActor = getTokenActorFromCombatant(c);
