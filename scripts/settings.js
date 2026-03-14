@@ -43,6 +43,20 @@ export function registerSettings() {
     type: Boolean
   });
 
+  game.settings.register(MODULE_ID, "engagementTooltipVisibility", {
+    name: game.i18n.localize("wfrp4e_battle_status.Settings.EngagementTooltipVisibility.Name"),
+    hint: game.i18n.localize("wfrp4e_battle_status.Settings.EngagementTooltipVisibility.Hint"),
+    scope: "client",
+    config: true,
+    type: String,
+    choices: {
+      gm: game.i18n.localize("wfrp4e_battle_status.Settings.EngagementTooltipVisibility.Choices.GM"),
+      players: game.i18n.localize("wfrp4e_battle_status.Settings.EngagementTooltipVisibility.Choices.Players")
+    },
+    default: "gm"
+  });
+
+
   game.settings.register(MODULE_ID, "enableDebugLog", {
     name: game.i18n.localize("wfrp4e_battle_status.Settings.EnableDebugLog.Name"),
     hint: game.i18n.localize("wfrp4e_battle_status.Settings.EnableDebugLog.Hint"),

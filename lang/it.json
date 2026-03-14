@@ -30,6 +30,14 @@
       "EnableDebugLog": {
         "Name": "Abilita log di debug",
         "Hint": "Scrive informazioni di debug nella console del browser."
+      },
+      "EngagementTooltipVisibility": {
+        "Name": "Visibilità tooltip degli ingaggi",
+        "Hint": "Definisce chi può vedere i tooltip dei badge di ingaggio sui token.",
+        "Choices": {
+          "GM": "Solo GM e Assistenti GM",
+          "Players": "Tutti i giocatori"
+        }
       }
     },
     "Chat": {

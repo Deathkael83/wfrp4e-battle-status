@@ -22,7 +22,15 @@
             "Either": "At least one actor must be a combatant",
             "None": "Combatant status is not required"
             }
+        },
+      "EngagementTooltipVisibility": {
+        "Name": "Engagement tooltip visibility",
+        "Hint": "Defines who can see engagement badge tooltips on tokens.",
+        "Choices": {
+          "GM": "GM and Assistant GMs only",
+          "Players": "All players"
         }
+      }
     },
     "Chat": {
       "EngagedAppliedPair": "<b>{attacker}</b> and <b>{defender}</b> are now engaged (round {round}).",
