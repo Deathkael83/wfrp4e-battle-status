@@ -1051,7 +1051,7 @@ async function flushPendingEngagedDeletes(combat) {
         affectedTokenKeys: Array.from(affectedTokenKeys),
         remainingSuppress: Array.from(_manualDisengageTokenSuppress)
       });
-    }, 100);
+    }, 1000);
   }
 }
 
