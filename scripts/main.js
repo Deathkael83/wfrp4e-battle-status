@@ -977,6 +977,86 @@ async function removePairsForTokenKey(combat, tokenKey) {
   }
 }
 
+async function reconcilePairsAfterManualDelete(combat, tokenKeys) {
+  const pairs = await loadEngagementPairs(combat);
+  const reconciled = {};
+  const removedPairs = [];
+  const affectedTokenKeys = new Set(tokenKeys);
+
+  debugLog("reconcilePairsAfterManualDelete:start", {
+    tokenKeys,
+    loadedPairs: summarizePairs(pairs)
+  });
+
+  for (const [key, info] of Object.entries(pairs)) {
+    if (!info?.aKey || !info?.bKey) continue;
+
+    const aCombatant = getCombatantByTokenKey(combat, info.aKey);
+    const bCombatant = getCombatantByTokenKey(combat, info.bKey);
+    const aActor = aCombatant ? getTokenActorFromCombatant(aCombatant) : null;
+    const bActor = bCombatant ? getTokenActorFromCombatant(bCombatant) : null;
+
+    const touchesManual =
+      tokenKeys.includes(info.aKey) ||
+      tokenKeys.includes(info.bKey);
+
+    const aHasEngaged = aActor?.hasCondition?.("engaged") ?? false;
+    const bHasEngaged = bActor?.hasCondition?.("engaged") ?? false;
+
+    const keep =
+      !touchesManual &&
+      !!aCombatant &&
+      !!bCombatant &&
+      !!aActor &&
+      !!bActor &&
+      aHasEngaged &&
+      bHasEngaged;
+
+    if (keep) {
+      reconciled[key] = info;
+    } else {
+      removedPairs.push({
+        key,
+        pair: info,
+        touchesManual,
+        aHasEngaged,
+        bHasEngaged
+      });
+
+      if (info.aKey) affectedTokenKeys.add(info.aKey);
+      if (info.bKey) affectedTokenKeys.add(info.bKey);
+    }
+  }
+
+  debugLog("reconcilePairsAfterManualDelete:removedPairs", removedPairs);
+  debugLog("reconcilePairsAfterManualDelete:reconciled", summarizePairs(reconciled));
+
+  for (const key of affectedTokenKeys) {
+    _manualDisengageTokenSuppress.add(key);
+  }
+
+  try {
+    await commitEngagementState(combat, reconciled);
+
+    debugLog("reconcilePairsAfterManualDelete:after-commit", {
+      tokenKeys,
+      affectedTokenKeys: Array.from(affectedTokenKeys),
+      finalPairs: summarizePairs(await loadEngagementPairs(combat))
+    });
+  } finally {
+    setTimeout(() => {
+      for (const key of affectedTokenKeys) {
+        _manualDisengageTokenSuppress.delete(key);
+      }
+
+      debugLog("reconcilePairsAfterManualDelete:manual-suppress-cleared", {
+        affectedTokenKeys: Array.from(affectedTokenKeys),
+        remainingSuppress: Array.from(_manualDisengageTokenSuppress)
+      });
+    }, 100);
+  }
+}
+
 async function flushPendingManualDisengages(combat) {
   if (!combat) return;
 
@@ -988,66 +1068,11 @@ async function flushPendingManualDisengages(combat) {
     return;
   }
 
-  const pairs = await loadEngagementPairs(combat);
-
   debugLog("flushPendingManualDisengages:start", {
-    tokenKeys,
-    loadedPairs: summarizePairs(pairs)
+    tokenKeys
   });
 
-  const affectedTokenKeys = new Set(tokenKeys);
-  let deletedAny = false;
-
-  for (const [key, info] of Object.entries(pairs)) {
-    if (!info) continue;
-
-    const matches = tokenKeys.includes(info.aKey) || tokenKeys.includes(info.bKey);
-    if (!matches) continue;
-
-    if (info.aKey) affectedTokenKeys.add(info.aKey);
-    if (info.bKey) affectedTokenKeys.add(info.bKey);
-
-    delete pairs[key];
-    deletedAny = true;
-
-    debugLog("flushPendingManualDisengages:removed-pair", {
-      key,
-      pair: info
-    });
-  }
-
-  if (!deletedAny) {
-    debugLog("flushPendingManualDisengages:no-pairs-removed", {
-      tokenKeys,
-      loadedPairs: summarizePairs(pairs)
-    });
-    return;
-  }
-
-  for (const key of affectedTokenKeys) {
-    _manualDisengageTokenSuppress.add(key);
-  }
-
-  try {
-    await commitEngagementState(combat, pairs);
-
-    debugLog("flushPendingManualDisengages:after-commit", {
-      tokenKeys,
-      affectedTokenKeys: Array.from(affectedTokenKeys),
-      finalPairs: summarizePairs(await loadEngagementPairs(combat))
-    });
-  } finally {
-    setTimeout(() => {
-      for (const key of affectedTokenKeys) {
-        _manualDisengageTokenSuppress.delete(key);
-      }
-
-      debugLog("flushPendingManualDisengages:manual-suppress-cleared", {
-        affectedTokenKeys: Array.from(affectedTokenKeys),
-        remainingSuppress: Array.from(_manualDisengageTokenSuppress)
-      });
-    }, 100);
-  }
+  await reconcilePairsAfterManualDelete(combat, tokenKeys);
 }
 
 function scheduleManualDisengageFlush(combat, tokenKey) {
@@ -1070,7 +1095,7 @@ function scheduleManualDisengageFlush(combat, tokenKey) {
     queueEngagementUpdate(async () => {
       await flushPendingManualDisengages(combat);
     });
-  }, 50);
+  }, 75);
 }
 
 async function handleActorUnconsciousCleanup(combatant, combat) {
