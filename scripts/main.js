@@ -204,12 +204,13 @@ async function setEngagementPairsFlag(combat, pairs) {
     pairs: summarizePairs(pairs)
   });
 
-  if (!hasPairs) {
-    await combat.unsetFlag(MODULE_ID, "engagedPairs");
-    return;
-  }
+  // Prima elimina sempre del tutto il flag vecchio
+  await combat.unsetFlag(MODULE_ID, "engagedPairs");
 
-  await combat.setFlag(MODULE_ID, "engagedPairs", pairs);
+  // Poi riscrivilo pulito solo se ci sono pair
+  if (hasPairs) {
+    await combat.setFlag(MODULE_ID, "engagedPairs", pairs);
+  }
 }
 
 // ---------------------------------------------------------------------------
