@@ -1348,7 +1348,7 @@ Hooks.once("ready", () => {
           options,
           userId,
           suppressedByEffectUuid: _suppressEngagedEffectDeletes.has(effect?.uuid),
-          burstOpen: _engagedDeleteBurstOpen
+          lastManualEngagedDeleteAt: _lastManualEngagedDeleteAt
         });
 
         if (_suppressEngagedEffectDeletes.has(effect?.uuid)) {
@@ -1385,23 +1385,23 @@ Hooks.once("ready", () => {
           const withinManualWindow =
             Date.now() - _lastManualEngagedDeleteAt <= MANUAL_ENGAGED_DELETE_WINDOW_MS;
 
-            if (withinManualWindow) {
-              scheduleEngagedDeleteFlush(combat, tokenKey, false);
-              debugLog("deleteActiveEffect:batched-automatic-engaged-delete", {
-                tokenKey,
-                tokenName: tokenDoc.name,
-                withinManualWindow,
-                lastManualEngagedDeleteAt: _lastManualEngagedDeleteAt
-              });
-            } else {
-              debugLog("deleteActiveEffect:ignore-automatic-outside-window", {
-                tokenKey,
-                tokenName: tokenDoc.name,
-                withinManualWindow,
-                lastManualEngagedDeleteAt: _lastManualEngagedDeleteAt
-              });
-            }
-            return;
+          if (withinManualWindow) {
+            scheduleEngagedDeleteFlush(combat, tokenKey, false);
+            debugLog("deleteActiveEffect:batched-automatic-engaged-delete", {
+              tokenKey,
+              tokenName: tokenDoc.name,
+              withinManualWindow,
+              lastManualEngagedDeleteAt: _lastManualEngagedDeleteAt
+            });
+          } else {
+            debugLog("deleteActiveEffect:ignore-automatic-outside-window", {
+              tokenKey,
+              tokenName: tokenDoc.name,
+              withinManualWindow,
+              lastManualEngagedDeleteAt: _lastManualEngagedDeleteAt
+            });
+          }
+          return;
         }
 
         await handleManualEngagedRemovalByToken(tokenDoc, combat);
