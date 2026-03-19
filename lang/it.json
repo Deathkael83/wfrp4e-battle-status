@@ -38,6 +38,14 @@
           "GM": "Solo GM e Assistenti GM",
           "Players": "Tutti i giocatori"
         }
+      },
+      "enableConditionPenaltyFix": {
+        "Name": "Correzione delle penalità di condizioni",
+        "Hint": "Mantiene solo la peggiore tra le penalità delle condizioni negative attive nelle finestre di dialogo di lancio dei dadi."
+      },
+      "conditionPenaltyFixDebug": {
+        "Name": "Abilita log di debug - penalità condizioni",
+        "Hint": "Scrive informazioni di debug nella console del browser per la Correzione delle penalità di condizioni."
       }
     },
     "Chat": {

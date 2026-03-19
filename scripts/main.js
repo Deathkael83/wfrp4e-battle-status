@@ -1,4 +1,5 @@
 import { MODULE_ID, registerSettings } from "./settings.js";
+import { registerConditionPenaltyFix, unregisterConditionPenaltyFix } from "./features/condition-penalty-fix.js";
 
 /**
  * WFRP4e Battle Status
@@ -1269,6 +1270,8 @@ Hooks.once("init", () => {
 // READY
 // ---------------------------------------------------------------------------
 Hooks.once("ready", () => {
+  registerConditionPenaltyFix();
+  
   const me = game.users.current;
   if (!me || ![3, 4].includes(me.role)) return;
 
@@ -1535,4 +1538,13 @@ Hooks.once("ready", () => {
     if (!combat) return;
     await refreshEngagementUI(combat);
   });
+});
+
+Hooks.on("updateSetting", (setting, _changes, _options, userId) => {
+  if (userId !== game.userId) return;
+
+  if (setting.key === "wfrp4e-battle-status.enableConditionPenaltyFix") {
+    unregisterConditionPenaltyFix();
+    registerConditionPenaltyFix();
+  }
 });

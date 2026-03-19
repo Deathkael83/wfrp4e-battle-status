@@ -30,6 +30,14 @@
           "GM": "GM and Assistant GMs only",
           "Players": "All players"
         }
+      },
+      "enableConditionPenaltyFix": {
+        "Name": "Condition Penalty Fix",
+        "Hint": "Keeps only the worst active negative condition penalty in roll dialogs."
+      },
+      "conditionPenaltyFixDebug": {
+        "Name": "Condition Penalty Fix Debug",
+        "Hint": "Enable debug logs for the condition penalty fix."
       }
     },
     "Chat": {

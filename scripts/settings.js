@@ -65,4 +65,22 @@ export function registerSettings() {
     default: false,
     type: Boolean
   });
+  
+  game.settings.register(MODULE_ID, "enableConditionPenaltyFix", {
+    name: game.i18n.localize("wfrp4e_battle_status.Settings.enableConditionPenaltyFix.Name"),
+    hint: game.i18n.localize("wfrp4e_battle_status.Settings.enableConditionPenaltyFix.Hint"),
+    scope: "world",
+    config: true,
+    type: Boolean,
+    default: true
+  });
+
+  game.settings.register(MODULE_ID, "conditionPenaltyFixDebug", {
+    name: game.i18n.localize("wfrp4e_battle_status.Settings.conditionPenaltyFixDebug.Name"),
+    hint: game.i18n.localize("wfrp4e_battle_status.Settings.conditionPenaltyFixDebug.Hint"),
+    scope: "client",
+    config: true,
+    type: Boolean,
+    default: false
+  });
 }
