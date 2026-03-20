@@ -257,6 +257,7 @@ function clearAllEngagementUI() {
 
   for (const token of canvas.tokens.placeables) {
     clearEngagementBadge(token);
+	hideEngagementTooltip(token);
   }
 
   clearEngagementLines();
@@ -479,11 +480,22 @@ async function refreshEngagementUI(combat) {
 }
 
 async function refreshCurrentSceneEngagementUI() {
+  if (!canvas?.ready) return;
+
   const combat = getCurrentCombat();
-  if (!combat || !canvas?.ready) return;
+  if (!combat) {
+    clearAllEngagementUI();
+    return;
+  }
+
+  const pairs = await combat.getFlag(MODULE_ID, "engagedPairs");
+  if (!pairs || !Object.keys(pairs).length) {
+    clearAllEngagementUI();
+    return;
+  }
+
   await refreshEngagementUI(combat);
 }
-
 // ---------------------------------------------------------------------------
 // Detection helpers
 // ---------------------------------------------------------------------------
@@ -1592,43 +1604,31 @@ Hooks.once("ready", () => {
     });
   });
 
-  Hooks.on("preDeleteCombat", async (combat) => {
-    return queueEngagementUpdate(async () => {
-      try {
-        if (!game.settings.get(MODULE_ID, "enableAutoEngaged")) return;
+Hooks.on("preDeleteCombat", async (combat) => {
+  if (!game.settings.get(MODULE_ID, "enableAutoEngaged")) return;
 
-        const me = game.users.current;
-        if (!me || ![3, 4].includes(me.role)) return;
+  const me = game.users.current;
+  if (!me || ![3, 4].includes(me.role)) return;
 
-        debugLog("Combat ending, cleaning engagement state");
+  debugLog("Combat ending, cleaning engagement state");
 
-        if (_engagedDeleteFlushTimer) {
-          clearTimeout(_engagedDeleteFlushTimer);
-          _engagedDeleteFlushTimer = null;
-        }
+  try {
+    for (const c of combat.combatants) {
+      const actor = c.actor;
+      if (!actor) continue;
 
-        _pendingEngagedDeleteTokenKeys.clear();
-        _lastManualEngagedDeleteAt = 0;
-
-        for (const c of combat.combatants) {
-          const tokenActor = getTokenActorFromCombatant(c);
-          if (!tokenActor) continue;
-
-          if (tokenActor.hasCondition?.("engaged")) {
-            await removeEngagedSilently(tokenActor);
-
-            const tokenName = c.token?.name || c.name || tokenActor.name;
-            gmChat(tf("wfrp4e_battle_status.Chat.EngagedRemovedEndCombat", { token: tokenName }));
-          }
-        }
-
-        await commitEngagementState(combat, {});
-        clearAllEngagementUI();
-      } catch (err) {
-        debugLog("Error during preDeleteCombat cleanup", err);
+      if (actor.hasCondition?.("engaged")) {
+        await removeEngagedSilently(actor);
       }
-    });
-  });
+    }
+
+    await combat.unsetFlag(MODULE_ID, "engagedPairs");
+    clearAllEngagementUI();
+    clearEngagementLines();
+  } catch (err) {
+    debugLog("Error during preDeleteCombat cleanup", err);
+  }
+});
 
 Hooks.on("updateToken", async (tokenDoc, changed, options, userId) => {
   try {
@@ -1652,7 +1652,8 @@ Hooks.on("updateToken", async (tokenDoc, changed, options, userId) => {
 
     if (!isInPair) return;
 
-    scheduleEngagementLineRefresh(combat, 120);
+	scheduleEngagementLineRefresh(combat, 250);
+    scheduleEngagementLineRefresh(combat, 800);
   } catch (err) {
     debugLog("Error refreshing engagement lines after token move", err);
   }
