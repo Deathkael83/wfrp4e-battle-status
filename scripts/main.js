@@ -1612,15 +1612,14 @@ Hooks.on("preDeleteCombat", async (combat) => {
   debugLog("Combat ending, cleaning engagement state");
 
   try {
-    // blocca qualunque batch pendente
     if (_engagedDeleteFlushTimer) {
       clearTimeout(_engagedDeleteFlushTimer);
       _engagedDeleteFlushTimer = null;
     }
-    _pendingEngagedDeleteTokenKeys.clear();
 
-    // prima pulisci lo stato, poi le condition
-    await combat.unsetFlag(MODULE_ID, "engagedPairs");
+    _pendingEngagedDeleteTokenKeys.clear();
+    _manualDisengageTokenSuppress.clear();
+    _suppressEngagedEffectDeletes.clear();
 
     for (const c of combat.combatants) {
       const tokenActor = getTokenActorFromCombatant(c) || c.actor;
