@@ -65,6 +65,58 @@ export function registerSettings() {
     default: true
   });
 
+  game.settings.register(MODULE_ID, "engagementLineWidth", {
+    name: "wfrp4e_battle_status.Settings.EngagementLineWidth.Name",
+    hint: "wfrp4e_battle_status.Settings.EngagementLineWidth.Hint",
+    scope: "world",
+    config: true,
+    type: Number,
+    range: {
+      min: 1,
+      max: 10,
+      step: 1
+    },
+    default: 2
+  });
+
+  game.settings.register(MODULE_ID, "engagementLineColor", {
+    name: "wfrp4e_battle_status.Settings.EngagementLineColor.Name",
+    hint: "wfrp4e_battle_status.Settings.EngagementLineColor.Hint",
+    scope: "world",
+    config: true,
+    type: String,
+    default: "#c2a96a"
+  });
+
+  game.settings.register(MODULE_ID, "engagementLineAlpha", {
+    name: "wfrp4e_battle_status.Settings.EngagementLineAlpha.Name",
+    hint: "wfrp4e_battle_status.Settings.EngagementLineAlpha.Hint",
+    scope: "world",
+    config: true,
+    type: Number,
+    range: {
+      min: 0.1,
+      max: 1,
+      step: 0.1
+    },
+    default: 0.55
+  });
+
+  game.settings.register(MODULE_ID, "engagementLineStyle", {
+    name: "wfrp4e_battle_status.Settings.EngagementLineStyle.Name",
+    hint: "wfrp4e_battle_status.Settings.EngagementLineStyle.Hint",
+    scope: "world",
+    config: true,
+    type: String,
+    choices: {
+      solid: "wfrp4e_battle_status.Settings.EngagementLineStyle.Choices.Solid",
+      dashed: "wfrp4e_battle_status.Settings.EngagementLineStyle.Choices.Dashed",
+      dotted: "wfrp4e_battle_status.Settings.EngagementLineStyle.Choices.Dotted",
+      double: "wfrp4e_battle_status.Settings.EngagementLineStyle.Choices.Double"
+    },
+    default: "dashed"
+  });
+
   game.settings.register(MODULE_ID, "enableDebugLog", {
     name: game.i18n.localize("wfrp4e_battle_status.Settings.EnableDebugLog.Name"),
     hint: game.i18n.localize("wfrp4e_battle_status.Settings.EnableDebugLog.Hint"),

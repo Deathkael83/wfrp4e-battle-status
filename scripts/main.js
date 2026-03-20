@@ -295,6 +295,97 @@ function getTokenCenter(token) {
   };
 }
 
+function drawSolidLine(graphics, a, b, style) {
+  graphics.lineStyle(style.width, style.color, style.alpha);
+  graphics.moveTo(a.x, a.y);
+  graphics.lineTo(b.x, b.y);
+}
+
+function drawDashedLine(graphics, a, b, style, dash = 12, gap = 8) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const dist = Math.hypot(dx, dy);
+  if (!dist) return;
+
+  const ux = dx / dist;
+  const uy = dy / dist;
+
+  graphics.lineStyle(style.width, style.color, style.alpha);
+
+  let traveled = 0;
+  while (traveled < dist) {
+    const startX = a.x + ux * traveled;
+    const startY = a.y + uy * traveled;
+
+    const endTravel = Math.min(traveled + dash, dist);
+    const endX = a.x + ux * endTravel;
+    const endY = a.y + uy * endTravel;
+
+    graphics.moveTo(startX, startY);
+    graphics.lineTo(endX, endY);
+
+    traveled += dash + gap;
+  }
+}
+
+function drawDottedLine(graphics, a, b, style, spacing = 14) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const dist = Math.hypot(dx, dy);
+  if (!dist) return;
+
+  const ux = dx / dist;
+  const uy = dy / dist;
+  const radius = Math.max(1.5, style.width * 0.45);
+
+  for (let traveled = 0; traveled <= dist; traveled += spacing) {
+    const x = a.x + ux * traveled;
+    const y = a.y + uy * traveled;
+
+    graphics.beginFill(style.color, style.alpha);
+    graphics.drawCircle(x, y, radius);
+    graphics.endFill();
+  }
+}
+
+function drawDoubleLine(graphics, a, b, style, offset = 3) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const dist = Math.hypot(dx, dy);
+  if (!dist) return;
+
+  const nx = -dy / dist;
+  const ny = dx / dist;
+  const off = offset + style.width * 0.2;
+  const halfWidth = Math.max(1, style.width * 0.45);
+
+  graphics.lineStyle(halfWidth, style.color, style.alpha);
+
+  graphics.moveTo(a.x + nx * off, a.y + ny * off);
+  graphics.lineTo(b.x + nx * off, b.y + ny * off);
+
+  graphics.moveTo(a.x - nx * off, a.y - ny * off);
+  graphics.lineTo(b.x - nx * off, b.y - ny * off);
+}
+
+function drawPatternedEngagementLine(graphics, a, b, style) {
+  switch (style.pattern) {
+    case "dashed":
+      drawDashedLine(graphics, a, b, style);
+      break;
+    case "dotted":
+      drawDottedLine(graphics, a, b, style);
+      break;
+    case "double":
+      drawDoubleLine(graphics, a, b, style);
+      break;
+    case "solid":
+    default:
+      drawSolidLine(graphics, a, b, style);
+      break;
+  }
+}
+
 function drawEngagementLines(combat, pairs) {
   clearEngagementLines();
 
@@ -303,6 +394,8 @@ function drawEngagementLines(combat, pairs) {
 
   const container = getEngagementLinesContainer();
   if (!container) return;
+
+  const style = getEngagementLineStyle();
 
   for (const info of Object.values(pairs || {})) {
     if (!info?.aToken || !info?.bToken) continue;
@@ -320,12 +413,31 @@ function drawEngagementLines(combat, pairs) {
     line.name = `engagementLine-${info.aToken}-${info.bToken}`;
     line.eventMode = "none";
 
-    line.lineStyle(3, 0xf0e6b8, 0.7);
-    line.moveTo(a.x, a.y);
-    line.lineTo(b.x, b.y);
+    drawPatternedEngagementLine(line, a, b, style);
 
     container.addChild(line);
   }
+}
+
+function getEngagementLineStyle() {
+  const width = Number(game.settings.get(MODULE_ID, "engagementLineWidth")) || 3;
+  const alpha = Number(game.settings.get(MODULE_ID, "engagementLineAlpha")) || 0.7;
+  const colorHex = String(game.settings.get(MODULE_ID, "engagementLineColor") || "#f0e6b8").trim();
+  const pattern = String(game.settings.get(MODULE_ID, "engagementLineStyle") || "solid");
+
+  const validHex = /^#?[0-9a-fA-F]{6}$/.test(colorHex);
+  const normalizedHex = validHex
+    ? (colorHex.startsWith("#") ? colorHex : `#${colorHex}`)
+    : "#f0e6b8";
+
+  const color = Number.parseInt(normalizedHex.slice(1), 16);
+
+  return {
+    width,
+    color,
+    alpha,
+    pattern
+  };
 }
 
 function scheduleEngagementLineRefresh(combat, delay = 120) {
@@ -1702,4 +1814,14 @@ Hooks.on("updateSetting", async (setting, _changes, _options, userId) => {
 
     await refreshEngagementUI(combat);
   }
+  if (
+    setting.key === `${MODULE_ID}.showEngagementLines` ||
+    setting.key === `${MODULE_ID}.engagementLineWidth` ||
+    setting.key === `${MODULE_ID}.engagementLineColor` ||
+    setting.key === `${MODULE_ID}.engagementLineAlpha` ||
+    setting.key === `${MODULE_ID}.engagementLineStyle`
+  ) {
+    await refreshCurrentSceneEngagementUI();
+  }
+  
 });

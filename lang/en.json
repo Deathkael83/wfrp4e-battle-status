@@ -42,6 +42,28 @@
 	  "ShowEngagementLines": {
         "Name": "Show engagement lines",
         "Hint": "Draws lines between tokens that are currently engaged."
+      },
+	  "EngagementLineWidth": {
+	    "Name": "Engagement line width",
+	    "Hint": "Sets the thickness of engagement lines."
+	  },
+	  "EngagementLineColor": {
+	    "Name": "Engagement line color",
+	    "Hint": "Sets the color of engagement lines using a hex value."
+	  },
+	  "EngagementLineAlpha": {
+	    "Name": "Engagement line opacity",
+	    "Hint": "Sets the opacity of engagement lines."
+	  },
+	  "EngagementLineStyle": {
+        "Name": "Engagement line style",
+        "Hint": "Sets the visual style of engagement lines.",
+         "Choices": {
+           "Solid": "Solid",
+           "Dashed": "Dashed",
+           "Dotted": "Dotted",
+           "Double": "Double"
+           }
       }
     },
     "Chat": {

@@ -50,7 +50,29 @@
 	  "ShowEngagementLines": {
         "Name": "Mostra linee di ingaggio",
         "Hint": "Disegna linee tra i token attualmente ingaggiati."
-      }
+      },
+	  "EngagementLineWidth": {
+	    "Name": "Spessore linee di ingaggio",
+	    "Hint": "Imposta lo spessore delle linee di ingaggio."
+	  },
+	  "EngagementLineColor": {
+	    "Name": "Colore linee di ingaggio",
+	    "Hint": "Imposta il colore delle linee di ingaggio tramite valore esadecimale."
+	  },
+	  "EngagementLineAlpha": {
+	    "Name": "Opacità linee di ingaggio",
+	    "Hint": "Imposta l'opacità delle linee di ingaggio."
+	  },
+	  "EngagementLineStyle": {
+	    "Name": "Stile linee di ingaggio",
+	    "Hint": "Imposta lo stile visivo delle linee di ingaggio.",
+	    "Choices": {
+		  "Solid": "Continua",
+		  "Dashed": "Tratteggiata",
+		  "Dotted": "Punteggiata",
+		  "Double": "Doppia"
+	    }
+	  }
     },
     "Chat": {
       "EngagedAppliedPair": "<b>{attacker}</b> e <b>{defender}</b> sono ora ingaggiati (round {round}).",
