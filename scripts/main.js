@@ -391,6 +391,12 @@ async function refreshEngagementUI(combat, pairs = null) {
   }
 }
 
+async function refreshCurrentSceneEngagementUI() {
+  const combat = getCurrentCombat();
+  if (!combat || !canvas?.ready) return;
+  await refreshEngagementUI(combat);
+}
+
 // ---------------------------------------------------------------------------
 // Detection helpers
 // ---------------------------------------------------------------------------
@@ -1533,11 +1539,21 @@ Hooks.once("ready", () => {
     });
   });
 
-  Hooks.on("canvasReady", async () => {
-    const combat = getCurrentCombat();
-    if (!combat) return;
-    await refreshEngagementUI(combat);
-  });
+Hooks.on("canvasReady", async () => {
+  await refreshCurrentSceneEngagementUI();
+});
+});
+
+Hooks.on("changeScene", async () => {
+  setTimeout(() => {
+    refreshCurrentSceneEngagementUI();
+  }, 200);
+});
+
+Hooks.on("renderCombatTracker", async () => {
+  setTimeout(() => {
+    refreshCurrentSceneEngagementUI();
+  }, 100);
 });
 
 Hooks.on("updateSetting", (setting, _changes, _options, userId) => {
