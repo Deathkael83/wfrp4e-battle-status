@@ -38,6 +38,10 @@
       "conditionPenaltyFixDebug": {
         "Name": "Condition Penalty Fix Debug",
         "Hint": "Enable debug logs for the condition penalty fix."
+      },
+	  "ShowEngagementLines": {
+        "Name": "Show engagement lines",
+        "Hint": "Draws lines between tokens that are currently engaged."
       }
     },
     "Chat": {

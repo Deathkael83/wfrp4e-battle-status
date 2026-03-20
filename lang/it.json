@@ -46,6 +46,10 @@
       "conditionPenaltyFixDebug": {
         "Name": "Abilita log di debug - penalità condizioni",
         "Hint": "Scrive informazioni di debug nella console del browser per la Correzione delle penalità di condizioni."
+      },
+	  "ShowEngagementLines": {
+        "Name": "Mostra linee di ingaggio",
+        "Hint": "Disegna linee tra i token attualmente ingaggiati."
       }
     },
     "Chat": {

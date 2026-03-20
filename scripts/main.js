@@ -254,7 +254,94 @@ function clearEngagementBadge(token) {
 
 function clearAllEngagementUI() {
   if (!canvas?.ready) return;
-  for (const token of canvas.tokens.placeables) clearEngagementBadge(token);
+
+  for (const token of canvas.tokens.placeables) {
+    clearEngagementBadge(token);
+  }
+
+  clearEngagementLines();
+}
+
+function getEngagementLinesContainer() {
+  if (!canvas?.tokens) return null;
+
+  let container = canvas.tokens.getChildByName(ENGAGEMENT_LINES_CONTAINER_NAME);
+  if (!container) {
+    container = new PIXI.Container();
+    container.name = ENGAGEMENT_LINES_CONTAINER_NAME;
+    container.eventMode = "none";
+    container.sortableChildren = true;
+    container.zIndex = 0;
+    canvas.tokens.addChild(container);
+  }
+
+  return container;
+}
+
+function clearEngagementLines() {
+  const container = canvas?.tokens?.getChildByName(ENGAGEMENT_LINES_CONTAINER_NAME);
+  if (!container) return;
+
+  for (const child of [...container.children]) {
+    container.removeChild(child);
+    child.destroy();
+  }
+}
+
+function getTokenCenter(token) {
+  return {
+    x: token.x + token.w / 2,
+    y: token.y + token.h / 2
+  };
+}
+
+function drawEngagementLines(combat, pairs) {
+  clearEngagementLines();
+
+  if (!canvas?.ready || !combat) return;
+  if (!game.settings.get(MODULE_ID, "showEngagementLines")) return;
+
+  const container = getEngagementLinesContainer();
+  if (!container) return;
+
+  for (const info of Object.values(pairs || {})) {
+    if (!info?.aToken || !info?.bToken) continue;
+
+    const tokenA = canvas.tokens.placeables.find(t => t.id === info.aToken);
+    const tokenB = canvas.tokens.placeables.find(t => t.id === info.bToken);
+
+    if (!tokenA || !tokenB) continue;
+    if (tokenA.document.hidden || tokenB.document.hidden) continue;
+
+    const a = getTokenCenter(tokenA);
+    const b = getTokenCenter(tokenB);
+
+    const line = new PIXI.Graphics();
+    line.name = `engagementLine-${info.aToken}-${info.bToken}`;
+    line.eventMode = "none";
+
+    line.lineStyle(3, 0xf0e6b8, 0.7);
+    line.moveTo(a.x, a.y);
+    line.lineTo(b.x, b.y);
+
+    container.addChild(line);
+  }
+}
+
+function scheduleEngagementLineRefresh(combat, delay = 120) {
+  if (!combat?.id) return;
+
+  const existing = _engagementLineRefreshTimeouts.get(combat.id);
+  if (existing) clearTimeout(existing);
+
+  const timeout = setTimeout(async () => {
+    _engagementLineRefreshTimeouts.delete(combat.id);
+
+    const pairs = duplicate((await combat.getFlag(MODULE_ID, "engagedPairs")) || {});
+    drawEngagementLines(combat, pairs);
+  }, delay);
+
+  _engagementLineRefreshTimeouts.set(combat.id, timeout);
 }
 
 function buildEngagementMap(pairs) {
@@ -368,11 +455,11 @@ function buildEngagementTooltip(sceneId, tokenId, engagementMap) {
   return `${t("wfrp4e_battle_status.UI.EngagedList")} (${names.length}): ${names.join(", ")}`;
 }
 
-async function refreshEngagementUI(combat, pairs = null) {
+async function refreshEngagementUI(combat) {
   if (!canvas?.ready || !combat) return;
 
-  const usedPairs = pairs ?? await loadEngagementPairs(combat);
-  const engagementMap = buildEngagementMap(usedPairs);
+  const pairs = duplicate((await combat.getFlag(MODULE_ID, "engagedPairs")) || {});
+  const engagementMap = buildEngagementMap(pairs);
   const sceneId = canvas.scene?.id;
 
   for (const token of canvas.tokens.placeables) {
@@ -383,12 +470,12 @@ async function refreshEngagementUI(combat, pairs = null) {
       continue;
     }
 
-    renderEngagementBadge(
-      token,
-      engagedSet.size,
-      buildEngagementTooltip(sceneId, token.id, engagementMap)
-    );
+    const count = engagedSet.size;
+    const tooltip = buildEngagementTooltip(sceneId, token.id, engagementMap);
+    renderEngagementBadge(token, count, tooltip);
   }
+
+  drawEngagementLines(combat, pairs);
 }
 
 async function refreshCurrentSceneEngagementUI() {
@@ -1268,6 +1355,10 @@ async function handleTurnChange(combat, changed) {
 // ---------------------------------------------------------------------------
 // INIT
 // ---------------------------------------------------------------------------
+
+const _engagementLineRefreshTimeouts = new Map();
+const ENGAGEMENT_LINES_CONTAINER_NAME = "wfrp4eBattleStatusEngagementLines";
+
 Hooks.once("init", () => {
   registerSettings();
 });
@@ -1539,6 +1630,34 @@ Hooks.once("ready", () => {
     });
   });
 
+Hooks.on("updateToken", async (tokenDoc, changed, options, userId) => {
+  try {
+    if (!game.settings.get(MODULE_ID, "enableAutoEngaged")) return;
+    if (!game.settings.get(MODULE_ID, "showEngagementLines")) return;
+    if (userId !== game.user.id) return;
+
+    const moved = ("x" in changed) || ("y" in changed);
+    if (!moved) return;
+
+    const combat = getCurrentCombat();
+    if (!combat) return;
+
+    const pairs = duplicate((await combat.getFlag(MODULE_ID, "engagedPairs")) || {});
+    if (!Object.keys(pairs).length) return;
+
+    const tokenId = tokenDoc.id;
+    const isInPair = Object.values(pairs).some(
+      (info) => info && (info.aToken === tokenId || info.bToken === tokenId)
+    );
+
+    if (!isInPair) return;
+
+    scheduleEngagementLineRefresh(combat, 120);
+  } catch (err) {
+    debugLog("Error refreshing engagement lines after token move", err);
+  }
+});
+
 Hooks.on("canvasReady", async () => {
   await refreshCurrentSceneEngagementUI();
 });
@@ -1556,11 +1675,24 @@ Hooks.on("renderCombatTracker", async () => {
   }, 100);
 });
 
-Hooks.on("updateSetting", (setting, _changes, _options, userId) => {
+Hooks.on("updateSetting", async (setting, _changes, _options, userId) => {
   if (userId !== game.userId) return;
 
-  if (setting.key === "wfrp4e-battle-status.enableConditionPenaltyFix") {
+  // Condition penalty fix
+  if (setting.key === `${MODULE_ID}.enableConditionPenaltyFix`) {
     unregisterConditionPenaltyFix();
     registerConditionPenaltyFix();
+  }
+
+  // Engagement lines toggle
+  if (setting.key === `${MODULE_ID}.showEngagementLines`) {
+    const combat = getCurrentCombat();
+
+    if (!combat) {
+      clearEngagementLines();
+      return;
+    }
+
+    await refreshEngagementUI(combat);
   }
 });

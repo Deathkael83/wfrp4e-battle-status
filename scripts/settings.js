@@ -56,6 +56,14 @@ export function registerSettings() {
     default: "gm"
   });
 
+  game.settings.register(MODULE_ID, "showEngagementLines", {
+    name: "wfrp4e_battle_status.Settings.ShowEngagementLines.Name",
+    hint: "wfrp4e_battle_status.Settings.ShowEngagementLines.Hint",
+    scope: "world",
+    config: true,
+    type: Boolean,
+    default: true
+  });
 
   game.settings.register(MODULE_ID, "enableDebugLog", {
     name: game.i18n.localize("wfrp4e_battle_status.Settings.EnableDebugLog.Name"),
