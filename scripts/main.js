@@ -257,7 +257,6 @@ function clearAllEngagementUI() {
 
   for (const token of canvas.tokens.placeables) {
     clearEngagementBadge(token);
-	hideEngagementTooltip(token);
   }
 
   clearEngagementLines();
@@ -1613,18 +1612,26 @@ Hooks.on("preDeleteCombat", async (combat) => {
   debugLog("Combat ending, cleaning engagement state");
 
   try {
-    for (const c of combat.combatants) {
-      const actor = c.actor;
-      if (!actor) continue;
+    // blocca qualunque batch pendente
+    if (_engagedDeleteFlushTimer) {
+      clearTimeout(_engagedDeleteFlushTimer);
+      _engagedDeleteFlushTimer = null;
+    }
+    _pendingEngagedDeleteTokenKeys.clear();
 
-      if (actor.hasCondition?.("engaged")) {
-        await removeEngagedSilently(actor);
+    // prima pulisci lo stato, poi le condition
+    await combat.unsetFlag(MODULE_ID, "engagedPairs");
+
+    for (const c of combat.combatants) {
+      const tokenActor = getTokenActorFromCombatant(c) || c.actor;
+      if (!tokenActor) continue;
+
+      if (tokenActor.hasCondition?.("engaged")) {
+        await removeEngagedSilently(tokenActor);
       }
     }
 
-    await combat.unsetFlag(MODULE_ID, "engagedPairs");
     clearAllEngagementUI();
-    clearEngagementLines();
   } catch (err) {
     debugLog("Error during preDeleteCombat cleanup", err);
   }
